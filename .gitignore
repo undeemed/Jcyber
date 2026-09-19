@@ -1,0 +1,6 @@
+engagements/
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+.DS_Store

@@ -1,0 +1,50 @@
+# P1 session brain: Memgraph + Lab.
+# One open-core instance per machine; tenancy is by `engagement_id` on every
+# node (PLAN D3). Optional per-engagement isolation: override the
+# container name/data dir per slug (documented, not pre-wired).
+#
+#   docker compose -f deploy/docker-compose.memgraph.yml up -d
+#   mgconsole -a localhost -p 7687     # verify, then run engagement-graph.cypher
+#
+services:
+  memgraph:
+    image: memgraph/memgraph:latest
+    container_name: jcyber-memgraph
+    ports:
+      - "7687:7687"   # Bolt
+    command:
+      - "--storage-wal-mode:on"
+      - "--storage-cache-allocator:LRU"
+      - "--logging-log-level:INFO"
+    volumes:
+      - memgraph-data:/var/lib/memgraph
+      # Schema is applied per engagement from schema/memgraph/engagement-graph.cypher;
+      # kept out of the image on purpose so a schema change is a code change here.
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'RETURN 1' | mgconsole -a 127.0.0.1 -p 7687 -q | grep -q 1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  memgraph-lab:
+    image: memgraph/memgraph-platform:latest
+    container_name: jcyber-memgraph-lab
+    ports:
+      - "3000:3000"   # http://localhost:3000 — operator-facing graph UI
+    depends_on:
+      memgraph:
+        condition: service_healthy
+    environment:
+      - MEMGRAPH_MCP_HOSTS=memgraph:7687
+
+volumes:
+  memgraph-data:
+    driver: local
+
+# NOTE: `schema/memgraph/engagement-graph.cypher` is intentionally NOT baked
+# into either image. P1 bootstrap = `up` + run the cypher file (with
+# $eid set) via mgconsole. Indexes in that file are idempotent-ish per fresh
+# container: for a warm container, use DROP/CREATE per the file header or
+# schema.assert() (note: schema.assert drops edge and point indexes — see its
+# docs; for bootstrap-per-fresh-container, just DROP ALL INDEXES + re-run).
