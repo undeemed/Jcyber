@@ -14,6 +14,7 @@ scope gate **and** a confidence gate before it executes.
 | Component | Source | Role |
 |---|---|---|
 | **HexStrike AI** | [0x4m4/hexstrike-ai](https://github.com/0x4m4/hexstrike-ai) | **Hands** - 150+ security tools behind an MCP server. Driven, not autonomous. |
+| **Caido** | [caido.io](https://caido.io) | **Traffic substrate** (infra, not a sixth system) - MITM proxy pinned at `127.0.0.1:8889` (one off HexStrike). Logs all target traffic, plugin-checked (Autorize/Scanner passive), edit-and-replay. Its verdicts enter as evidence, never as decisions. |
 | **Jev (TypeSafe)** | [docs.typesafe.ai](https://docs.typesafe.ai/introduction.md) | **Reflex** - fast, structured, confidence-calibrated decisions (choice / score / noul). The only model in the control path. |
 | **Memgraph** | [memgraph/memgraph](https://github.com/memgraph/memgraph) | **Session brain** - live per-engagement graph: scope, assets, findings, evidence, attack chains, decisions. Vector index for dedup. |
 | **TencentDB Agent Memory** | [TencentCloud/TencentDB-Agent-Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory) | **Long-term brain** - L0→L3 distillation, reusable skills, wiki of vendors, cross-engagement recall. |
