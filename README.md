@@ -110,13 +110,16 @@ For an explicit scope instead of a bare link, hand-author both `scope.toon` and
 | Phase | State |
 |---|---|
 | P0 skeleton (schema, decision catalog, loop spec, example) | done |
-| P1 session brain (compose + smoke) | implemented; the PLAN §8 *done-when* (fresh container + one Cypher apply reproduces a working engagement) is not demonstrated end to end |
-| P3 reflex core in `jcyber/` + `tests/` (loop, gates, deterministic scope, normalizer, state, bare-link intake) | implemented and tested (49 tests, deterministic fakes; live-Memgraph integration runs where reachable); the PLAN §8 *done-when* (10-iteration live self-selecting loop halting on the fixture) is not demonstrated |
-| P2 live hands / P4 long-term brain | next, per `PLAN.md` §8 |
+| P1 session brain (Memgraph compose + smoke) | done - CI Memgraph smoke green; engagements created, projected, and driven (decisions, evidence, verdicts) live against the container |
+| P2 live hands (HexStrike + Caido) | done - live: one Loop iteration drove a real HexStrike `nmap` run on an in-scope localhost target into an `E-###`, with the Caido proxy param on the call; endpoint map + Caido GraphQL query verified against upstream source |
+| P3 reflex core (loop, gates, scope, normalizer, state, intake) | done - live: a 10-iteration loop self-selects via real Jev, writes 10 `:Decision` nodes, and halts on an out-of-scope fixture (deterministic block, no target contact) |
+| P4 long-term brain (TencentDB seam) | done - live round-trip through the standalone SQLite memory-core (commit at close, recall on the next run) |
+| P5 report renderer | done - `jcyber report <dir>` renders deterministic Markdown from the graph (each VF with linked evidence) |
 
-The live entrypoint (`python -m jcyber <dir>`) talks to real
-Memgraph/HexStrike/Jev/TencentDB and is exercised under operator supervision,
-never in CI.
+The live path (real Memgraph/HexStrike/Jev/memory-core) was demonstrated this
+session on an in-scope localhost target; it is not run in CI (needs the Jev key
+and the external services). CI covers lint, types, tests, the docs gate, and a
+Dockerized Memgraph smoke.
 
 ## Testing and docs gate
 
