@@ -72,7 +72,7 @@ flowchart LR
   LEARN -->|committed atoms + skills| TD
   MG -->|reports, PoCs| OP
 
-  classDef infra fill:#f4f4f4,stroke:#999,stroke-dasharray:4 3
+  classDef infra fill:#f4f4f4,stroke:#999,stroke-dasharray:4 3,color:#111
   class HX,CD,TG infra
 ```
 

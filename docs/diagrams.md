@@ -39,7 +39,7 @@ flowchart LR
   LEARN -->|committed atoms + skills| TD
   MG -->|reports, PoCs| OP
 
-  classDef infra fill:#f4f4f4,stroke:#999,stroke-dasharray:4 3
+  classDef infra fill:#f4f4f4,stroke:#999,stroke-dasharray:4 3,color:#111
   class HX,CD,TG infra
 ```
 
@@ -107,6 +107,6 @@ flowchart TB
   MG --> OUT[jcyber report / trace<br/>Markdown + decision audit]
   OUT --> OP
 
-  classDef svc fill:#f4f4f4,stroke:#999
+  classDef svc fill:#f4f4f4,stroke:#999,color:#111
   class REC,OBS,DEC,ACT,CD,NORM,MG,AUD,LRN,OUT svc
 ```
