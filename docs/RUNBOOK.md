@@ -49,8 +49,10 @@ uv run python -m jcyber intake <link> --sev high   # explicit severity focus
 ```
 
 This writes `$JCYBER_HOME/<slug>/scope.toon` - a full scan of the target
-(apex host plus all subdomains), 5 rps, critical-only report focus. TOON is
-always `@toon-format/cli` output (Node required), never hand-formatted. Then
+(apex host plus all subdomains), 5 rps, critical-only report focus. A
+leading `www.` is stripped from the scope host, so the apex domain (and its
+sibling subdomains) are in scope, not just `www.*`. TOON is always
+`@toon-format/cli` output (Node required), never hand-formatted. Then
 author `engagement.toon` (JSON shape: `schema/storage-layout.md`) and run.
 
 Explicit scope: write encoder-produced `engagement.toon` and `scope.toon` by

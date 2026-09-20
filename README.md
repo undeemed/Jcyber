@@ -83,9 +83,9 @@ Dockerized Memgraph smoke; a local pre-commit mirror exists
 | Phase | State |
 |---|---|
 | P0 skeleton (schema, decision catalog, loop spec, example) | done |
-| P1 session brain (`deploy/docker-compose.memgraph.yml` + smoke) | done |
-| P3 reflex core: loop, gates, deterministic scope, normalizer, state, router in `jcyber/`, tested in `tests/`, bare-link intake | done |
-| P2 live hands (HexStrike + Caido bring-up) and P4 long-term brain (TencentDB) | next, per `PLAN.md` §8 |
+| P1 session brain (compose + smoke) | implemented; the PLAN §8 *done-when* (fresh container + one Cypher apply reproduces a working engagement) is not demonstrated end to end |
+| P3 reflex core in `jcyber/` + `tests/` (loop, gates, deterministic scope, normalizer, state, bare-link intake) | implemented and tested (49 tests, deterministic fakes; live-Memgraph integration runs where reachable); the PLAN §8 *done-when* (10-iteration live self-selecting loop halting on the fixture) is not demonstrated |
+| P2 live hands / P4 long-term brain | next, per `PLAN.md` §8 |
 
 The live entrypoint (`python -m jcyber <dir>`) talks to real
 Memgraph/HexStrike/Jev/TencentDB and is exercised under operator supervision,

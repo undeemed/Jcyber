@@ -23,7 +23,11 @@ def test_default_scope_covers_apex_and_subdomains() -> None:
 def test_slug_and_host_strip_www() -> None:
     intake = intake_link(LINK)
     assert intake.slug == "acme-lab-example"
-    assert scope_from_json(intake.scope_json).engagement == "acme-lab-example"
+    assert intake.host == "acme-lab.example"
+    scope = scope_from_json(intake.scope_json)
+    assert scope.engagement == "acme-lab-example"
+    assert in_scope("https://acme-lab.example/", scope)  # apex in scope
+    assert in_scope("https://api.acme-lab.example/x", scope)  # sibling subdomain
 
 
 def test_severity_defaults_critical_and_overrides() -> None:
