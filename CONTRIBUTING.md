@@ -1,11 +1,8 @@
 # Contributing to Jcyber
 
-Jcyber is docs-first: the specs in `PLAN.md`, `schema/`, `config/`, and
-`orchestrator/` are load-bearing, and the code implements them. Read
-[`AGENTS.md`](AGENTS.md) before changing anything - it holds the invariants
-(TOON files are `@toon-format/cli` output, gate thresholds live in one place
-and stay byte-identical, the scope gate is two mandatory layers, and no gate
-value appears in Python).
+Read [`AGENTS.md`](AGENTS.md) before changing anything - it holds the
+invariants (scope gate is code-enforced, exploit tools require confirmation,
+finding lifecycle is strict, TOON files are encoder output).
 
 ## Setup
 
@@ -15,16 +12,13 @@ uv sync
 
 ## Before you push
 
-Run everything CI runs, locally - all four must be green:
+Run everything CI runs, locally - all three must be green:
 
 ```
 uv run pytest -q
 uv run ruff check . && uv run ruff format --check .
 uv run pyright
-bash scripts/check_docs.sh
 ```
-
-CI (`.github/workflows/ci.yml`) runs the same plus a Dockerized Memgraph smoke.
 
 ## Commit messages: Conventional Commits
 
@@ -40,29 +34,24 @@ Commits follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/
 
 - **type** - one of `feat`, `fix`, `docs`, `refactor`, `perf`, `test`,
   `build`, `ci`, `chore`, `revert`.
-- **scope** (optional) - the area touched, e.g. `loop`, `gate`, `scope`,
-  `hexstrike`, `caido`, `memgraph`, `tencentdb`, `report`, `trace`, `intake`,
-  `docs`.
+- **scope** (optional) - the area touched, e.g. `mcp`, `scope`, `hexstrike`,
+  `memgraph`, `report`, `trace`, `intake`, `docs`.
 - **description** - imperative mood, lower case, no trailing period.
-- **breaking change** - append `!` after the type/scope (`feat(gate)!: ...`)
-  or add a `BREAKING CHANGE:` footer (or both).
+- **breaking change** - append `!` after the type/scope or add a
+  `BREAKING CHANGE:` footer.
 
-`feat` maps to a minor release, `fix` to a patch, a `BREAKING CHANGE` to a
-major. Examples:
+Examples:
 
 ```
-feat(trace): render the :Decision audit for an engagement
-fix(report): order evidence by id so the Markdown is deterministic
-docs(readme): add a service-usage diagram and a filetree layout
-refactor(hexstrike): map MCP tool names to REST slugs in one table
+feat(mcp): add graphql_scanner tool
+fix(scope): handle IPv6 targets in scope gate
+docs(readme): update quick start for MCP server
+refactor(hexstrike): consolidate endpoint slug mapping
 ```
 
 ## Pull requests
 
 - Keep the diff focused. When you change a contract, migrate every caller in
-  the same PR; do not leave shims or dead aliases.
-- Do not add agent co-author trailers. The human who opens the PR is
-  accountable for it; record model/session as metadata if you want, not as an
-  author.
-- Confirm the four gates above are green and that no gate value
-  (`0.80` / `0.85` / `0.90` / `0.95`) leaked into Python.
+  the same PR.
+- Do not add agent co-author trailers.
+- Confirm the three gates above are green.

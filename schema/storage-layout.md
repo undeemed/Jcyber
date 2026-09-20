@@ -116,71 +116,24 @@ never touches the gate above.
 `engagement.toon` (TOON):
 
 ```toon
-# engagement.toon — exactly what @toon-format/cli emits for the JSON below
+# engagement.toon -- exactly what @toon-format/cli emits for the JSON below
 target: acme-lab.example
 program: acme-lab bug bounty
-jev:
-  model: jev-latest
-  state_budget_chars: 24000
-gates[7:]{auto,else}:
-  recon_passive: 0.8,queue
-  recon_active: 0.85,queue
-  probing: 0.9,confirm
-  verify: 0.9,re-decide
-  fuzzing: 0.95,confirm
-  report: 0.95,confirm
-  scope_model_floor: 0.9,queue
-verdicts:
-  promote: 0.8
-  retire: 0.2
-report_ready: 0.95
 budget:
   wallclock_hours: 24
-  jev_calls: 500
   tool_runs: 300
 caido:
   proxy: "127.0.0.1:8889"
-engine:
-  enabled: false
-  provider: cerebras
-  model: qwen-3.8-27b
-  model_trivial: gpt-oss-120b
 ```
 
 ```json
 {
   "target": "acme-lab.example",
   "program": "acme-lab bug bounty",
-  "jev": { "model": "jev-latest", "state_budget_chars": 24000 },
-  "gates": {
-    "recon_passive":     { "auto": 0.80, "else": "queue" },
-    "recon_active":      { "auto": 0.85, "else": "queue" },
-    "probing":           { "auto": 0.90, "else": "confirm" },
-    "verify":            { "auto": 0.90, "else": "re-decide" },
-    "fuzzing":           { "auto": 0.95, "else": "confirm" },
-    "report":            { "auto": 0.95, "else": "confirm" },
-    "scope_model_floor": { "auto": 0.90, "else": "queue" }
-  },
-  "verdicts": { "promote": 0.8, "retire": 0.2 },
-  "report_ready": 0.95,
-  "budget": { "wallclock_hours": 24, "jev_calls": 500, "tool_runs": 300 },
-  "caido": { "proxy": "127.0.0.1:8889" },
-  "engine": { "enabled": false, "provider": "cerebras",
-              "model": "qwen-3.8-27b", "model_trivial": "gpt-oss-120b" }
+  "budget": { "wallclock_hours": 24, "tool_runs": 300 },
+  "caido": { "proxy": "127.0.0.1:8889" }
 }
 ```
-
-
-(Per the open question D4 in PLAN.md, the `model` pin is set per engagement:
-use a dated Jev version for reproducible runs.)
-
-`engine` notes: the LLM key is the operator env var `CEREBRAS_API_KEY` —
-read at runtime, **never** written into `engagement.toon`, the vault, or
-any file in this repo. Models are Cerebras API ids (per the Cerebras
-inference docs, re-fetched 2026-09-19; re-verify at bring-up), pinnable
-per engagement; `enabled: false` keeps the
-loop engine-free until the operator opts in (loop.md §3).
-
 ## Git policy
 
 - Framework code: committed here.

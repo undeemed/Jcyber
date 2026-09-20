@@ -1,7 +1,7 @@
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false, reportPrivateUsage=false
-"""Integration: drive the real Loop against a live Memgraph, all other seams
-faked (no real target is touched). Validates the MemgraphStore Cypher
-(project_state / write_decision / insert_evidence / apply_verdict) end-to-end.
+"""Integration: exercise MemgraphStore Cypher (project_state, insert_evidence,
+apply_verdict, create_hypothesis, create_finding, score_finding) against a live
+Memgraph instance.
 
 Skips when Memgraph is unreachable, so the default suite stays green without
 Docker; runs for real when `docker compose ... up -d` is live."""
@@ -11,11 +11,7 @@ from __future__ import annotations
 import pytest
 
 from jcyber.clients.memgraph import MemgraphStore
-from jcyber.config import Engagement, scope_from_json
-from jcyber.loop import Loop
-from jcyber.types import Answer, ChoiceAns, NoulAns
-from tests.conftest import ENGAGEMENT_JSON, SCOPE_JSON
-from tests.fakes import FakeDecider, FakeHands, FakeMemory, FakeProxy
+from jcyber.normalize import normalize
 
 EID = "acme-lab-itest"
 
@@ -36,49 +32,46 @@ def _wipe(store: MemgraphStore) -> None:
         s.run("MATCH (n:Engagement {id: $e}) DETACH DELETE n", e=EID)
 
 
-def test_loop_writes_decision_evidence_and_verdict_to_live_memgraph() -> None:
+def test_memgraph_evidence_hypothesis_finding_lifecycle() -> None:
+    """Exercise the full graph lifecycle: bootstrap, insert evidence,
+    create hypothesis, apply verdict, create finding, score finding."""
     store = _live_store()
     try:
         _wipe(store)
-        with store._driver.session() as s:
-            s.run("CREATE (:Engagement {id: $e, phase: 'probing'})", e=EID)
-            s.run("CREATE (:Hypothesis {engagement_id: $e, id: 'H-003', status: 'open'})", e=EID)
-
-        answers: dict[str, Answer] = {
-            "next_action": ChoiceAns(
-                choice="probing", confidence=0.93, probabilities={"probing": 0.93}
-            ),
-            "scope_safe": NoulAns(noul=0.96),
-            "report_ready": NoulAns(noul=0.21),
-            "h_H-003_supported": NoulAns(noul=0.92),
-        }
-        loop = Loop(
-            engagement_id=EID,
-            cfg=Engagement.from_json(ENGAGEMENT_JSON),
-            scope=scope_from_json(SCOPE_JSON),
-            decider=FakeDecider(answers),
-            graph=store,
-            hands=FakeHands("PORT 80 open"),
-            memory=FakeMemory(),
-            proxy=FakeProxy(),
+        store.bootstrap_engagement(
+            EID, "acme-lab.example", [{"kind": "host", "value": "acme-lab.example"}]
         )
-        it = loop.iterate()
-        assert it.gate.outcome.value == "auto"
 
-        with store._driver.session() as s:
-            dec = s.run(
-                "MATCH (d:Decision {engagement_id: $e}) RETURN count(d) AS n", e=EID
-            ).single()
-            ev = s.run(
-                "MATCH (e:Evidence {engagement_id: $e}) RETURN count(e) AS n", e=EID
-            ).single()
-            hyp = s.run(
-                "MATCH (h:Hypothesis {engagement_id: $e, id: 'H-003'}) RETURN h.status AS st",
-                e=EID,
-            ).single()
-        assert dec is not None and dec["n"] == 1
-        assert ev is not None and ev["n"] == 1
-        assert hyp is not None and hyp["st"] == "promote"
+        # Insert evidence
+        ev = normalize(EID, "nmap_scan", "acme-lab.example", "22/tcp open ssh", "E-001")
+        assert not store.seen_sha256(EID, ev.sha256)
+        store.insert_evidence(ev)
+        assert store.seen_sha256(EID, ev.sha256)
+
+        # Create hypothesis from evidence
+        store.create_hypothesis(EID, "H-001", "SSH on port 22 may be vulnerable", "E-001")
+        assert store.hypothesis_count(EID) == 1
+
+        # Promote hypothesis
+        store.apply_verdict(EID, "H-001", "promote", 0.92)
+
+        # Create finding
+        store.create_finding(EID, "F-001", "SSH weak config", "H-001")
+        assert store.finding_count(EID) == 1
+
+        # Score finding
+        store.score_finding(EID, "F-001", 3)  # high
+
+        # Project state sees evidence and finding
+        state = store.project_state(EID)
+        assert isinstance(state, dict)
+        recent = state.get("recent_evidence")
+        assert isinstance(recent, list)
+        assert len(recent) >= 1
+
+        # Report data
+        report = store.report_data(EID)
+        assert isinstance(report, dict)
     finally:
         _wipe(store)
         store.close()

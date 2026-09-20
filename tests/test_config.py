@@ -1,4 +1,4 @@
-"""Config parsing from the canonical TOON example JSON."""
+"""Config parsing from the canonical engagement JSON."""
 
 from __future__ import annotations
 
@@ -9,16 +9,12 @@ from jcyber.types import JSON, Severity
 from tests.conftest import ENGAGEMENT_JSON, SCOPE_JSON
 
 
-def test_engagement_parses_thresholds() -> None:
+def test_engagement_parses_core_fields() -> None:
     cfg = Engagement.from_json(ENGAGEMENT_JSON)
-    assert cfg.gates["probing"].auto == 0.90
-    assert cfg.gates["scope_model_floor"].auto == 0.90
-    assert cfg.report_ready == 0.95
-    assert cfg.verdicts.promote == 0.80
-    assert cfg.verdicts.retire == 0.20
+    assert cfg.target == "acme-lab.example"
+    assert cfg.program == "acme-lab bug bounty"
     assert cfg.caido_proxy == "127.0.0.1:8889"
-    assert cfg.engine.enabled is False
-    assert cfg.engine.model == "qwen-3.8-27b"
+    assert cfg.budget["tool_runs"] == 300
 
 
 def test_scope_parses_lists() -> None:
@@ -30,7 +26,7 @@ def test_scope_parses_lists() -> None:
     assert len(s.authorized_accounts) == 2
 
 
-def test_severity_scores_match_g3_legend() -> None:
+def test_severity_scores_match_legend() -> None:
     s = scope_from_json(SCOPE_JSON)
     assert s.severity_focus is Severity.critical
     assert [lv.score for lv in Severity] == [4, 3, 2, 1, 0]

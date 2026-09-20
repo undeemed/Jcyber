@@ -29,24 +29,29 @@ def intake_link(link: str, severity: str = "critical") -> Intake:
 
     ``severity`` must be one of SEVERITY_LEVELS; it defaults to critical --
     the report covers criticals only. A leading ``www.`` is stripped from
-    the host (so the scope is anchored at the apex domain) and slug."""
+    the host (so the scope is anchored at the apex domain) and slug.
+    Non-standard ports are preserved in the target (host:port)."""
     if severity not in SEVERITY_LEVELS:
         raise ValueError(f"severity must be one of {SEVERITY_LEVELS}")
     u = urlsplit(link if "://" in link else "http://" + link)
     host = (u.hostname or "").lower().removeprefix("www.")
     if not host:
         raise ValueError(f"no host in target: {link!r}")
+    port = u.port
+    # target preserves host:port for non-standard ports
+    target = f"{host}:{port}" if port and port not in (80, 443) else host
     slug = host.replace(".", "-")
     return Intake(
         slug=slug,
-        host=host,
+        host=target,  # host:port when non-standard
         scope_json={
             "engagement": slug,
-            # full scan: the apex host and every subdomain
-            "in_scope": [{"kind": "host", "value": host}, {"kind": "prefix", "value": f"*.{host}"}],
+            "in_scope": [
+                {"kind": "host", "value": host},
+                {"kind": "prefix", "value": f"*.{host}"},
+            ],
             "out_of_scope": [],
             "constraints": {
-                # 5 rps matches the canonical lab example (storage-layout.md)
                 "rate_limit_rps": 5,
                 "time_window": "",
                 "no_fuzzing_on": [],
@@ -55,3 +60,13 @@ def intake_link(link: str, severity: str = "critical") -> Intake:
             },
         },
     )
+
+
+def default_engagement_json(target: str, slug: str) -> JSON:
+    """Canonical engagement config. Matches the Engagement.from_json shape."""
+    return {
+        "target": target,
+        "program": f"{slug} engagement",
+        "budget": {"wallclock_hours": 24, "tool_runs": 300},
+        "caido": {"proxy": "127.0.0.1:8889"},
+    }

@@ -1,25 +1,18 @@
-"""Ports — the seams the loop depends on. Every external system (the six
-adapters plus the TOON codec) implements one of these Protocols, so the
-orchestrator is driven entirely through interfaces and faked in tests."""
+"""Ports — the seams the MCP server depends on. Every external system
+implements one of these Protocols, so the server is driven through
+interfaces and faked in tests."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Protocol
 
-from .types import JSON, Answer, Evidence, Question
+from .types import JSON, Evidence
 
 
 class ToonCodec(Protocol):
     def encode(self, obj: JSON) -> str: ...
     def decode(self, text: str) -> JSON: ...
-
-
-class Decider(Protocol):
-    """Jev. Receives fully-assembled questions (assembly happens in code,
-    never in the model) and returns one typed answer per question."""
-
-    def system_one(self, state: str, questions: Mapping[str, Question]) -> dict[str, Answer]: ...
 
 
 class GraphStore(Protocol):
@@ -34,6 +27,13 @@ class GraphStore(Protocol):
     def apply_verdict(
         self, engagement_id: str, hypothesis_id: str, verdict: str, support: float
     ) -> None: ...
+    def create_hypothesis(
+        self, engagement_id: str, hid: str, text: str, evidence_id: str
+    ) -> None: ...
+    def create_finding(
+        self, engagement_id: str, fid: str, title: str, hypothesis_id: str
+    ) -> None: ...
+    def score_finding(self, engagement_id: str, fid: str, severity: int) -> None: ...
 
 
 class Hands(Protocol):
@@ -55,9 +55,3 @@ class Memory(Protocol):
 
     def recall(self, engagement_id: str, scope: JSON) -> JSON: ...
     def commit(self, engagement_id: str, atoms: JSON) -> None: ...
-
-
-class Engine(Protocol):
-    """Cerebras BYOK engine. Output is evidence-only; never a decision layer."""
-
-    def augment(self, model: str, prompt: str) -> str: ...

@@ -1,21 +1,10 @@
-"""In-memory fakes for the ports. The loop is driven entirely through these,
-so tests touch no external system."""
+"""In-memory fakes for the ports. Tests use these instead of real backends."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
-from jcyber.types import JSON, Answer, Evidence, Question
-
-
-class FakeDecider:
-    def __init__(self, answers: dict[str, Answer]) -> None:
-        self.answers = answers
-        self.calls: list[tuple[str, dict[str, Question]]] = []
-
-    def system_one(self, state: str, questions: Mapping[str, Question]) -> dict[str, Answer]:
-        self.calls.append((state, dict(questions)))
-        return dict(self.answers)
+from jcyber.types import JSON, Evidence
 
 
 class FakeGraph:
@@ -23,7 +12,14 @@ class FakeGraph:
         self.projection: JSON = (
             projection
             if projection is not None
-            else {"phase": "probing", "open_hypotheses": [], "validated_findings": []}
+            else {
+                "phase": "recon",
+                "open_hypotheses": [],
+                "validated_findings": [],
+                "recent_evidence": [],
+                "tools_run": [],
+                "unscored_findings": [],
+            }
         )
         self.decisions: list[JSON] = []
         self.evidence: list[Evidence] = []
@@ -55,6 +51,15 @@ class FakeGraph:
     ) -> None:
         self.verdicts.append((hypothesis_id, verdict, support))
 
+    def create_hypothesis(self, engagement_id: str, hid: str, text: str, evidence_id: str) -> None:
+        pass
+
+    def create_finding(self, engagement_id: str, fid: str, title: str, hypothesis_id: str) -> None:
+        pass
+
+    def score_finding(self, engagement_id: str, fid: str, severity: int) -> None:
+        pass
+
 
 class FakeHands:
     def __init__(self, output: str = "line one\nline two") -> None:
@@ -68,11 +73,11 @@ class FakeHands:
 
 class FakeMemory:
     def __init__(self, priors: JSON | None = None) -> None:
+        self.priors = priors
         self.commits: list[tuple[str, JSON]] = []
-        self._priors: JSON = priors if priors is not None else {}
 
     def recall(self, engagement_id: str, scope: JSON) -> JSON:
-        return self._priors
+        return self.priors
 
     def commit(self, engagement_id: str, atoms: JSON) -> None:
         self.commits.append((engagement_id, atoms))
@@ -80,7 +85,7 @@ class FakeMemory:
 
 class FakeProxy:
     def __init__(self, findings: list[JSON] | None = None) -> None:
-        self._findings: list[JSON] = findings if findings is not None else []
+        self._findings = findings or []
 
     def findings(self, engagement_id: str) -> list[JSON]:
         return list(self._findings)

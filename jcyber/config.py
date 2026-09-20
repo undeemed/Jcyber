@@ -1,6 +1,4 @@
-"""Typed engagement + scope config, parsed from the TOON files. Every
-threshold the loop uses is loaded from here (engagement.toon) -- the code
-holds no hard-coded gate values."""
+"""Typed engagement + scope config, parsed from the TOON files."""
 
 from __future__ import annotations
 
@@ -30,21 +28,9 @@ def _str(v: JSON) -> str:
     return v
 
 
-def _num(v: JSON) -> float:
-    if isinstance(v, bool) or not isinstance(v, int | float):
-        raise ValueError(f"expected number, got {type(v).__name__}")
-    return float(v)
-
-
 def _int(v: JSON) -> int:
     if isinstance(v, bool) or not isinstance(v, int):
         raise ValueError(f"expected int, got {type(v).__name__}")
-    return v
-
-
-def _bool(v: JSON) -> bool:
-    if not isinstance(v, bool):
-        raise ValueError(f"expected bool, got {type(v).__name__}")
     return v
 
 
@@ -53,64 +39,20 @@ def _opt_str(v: JSON | None) -> str | None:
 
 
 @dataclass(frozen=True)
-class Gate:
-    auto: float
-    fallback: str  # the TOON key is `else`, a Python keyword
-
-
-@dataclass(frozen=True)
-class Verdicts:
-    promote: float
-    retire: float
-
-
-@dataclass(frozen=True)
-class EngineCfg:
-    enabled: bool
-    provider: str
-    model: str
-    model_trivial: str
-
-
-@dataclass(frozen=True)
 class Engagement:
     target: str
     program: str
-    jev_model: str
-    state_budget_chars: int
-    gates: dict[str, Gate]
-    verdicts: Verdicts
-    report_ready: float
     budget: dict[str, int]
     caido_proxy: str
-    engine: EngineCfg
 
     @classmethod
     def from_json(cls, data: JSON) -> Engagement:
         d = _obj(data)
-        jev = _obj(d["jev"])
-        gates = {
-            k: Gate(auto=_num(_obj(v)["auto"]), fallback=_str(_obj(v)["else"]))
-            for k, v in _obj(d["gates"]).items()
-        }
-        verdicts = _obj(d["verdicts"])
-        engine = _obj(d["engine"])
         return cls(
             target=_str(d["target"]),
             program=_str(d["program"]),
-            jev_model=_str(jev["model"]),
-            state_budget_chars=_int(jev["state_budget_chars"]),
-            gates=gates,
-            verdicts=Verdicts(promote=_num(verdicts["promote"]), retire=_num(verdicts["retire"])),
-            report_ready=_num(d["report_ready"]),
             budget={k: _int(v) for k, v in _obj(d["budget"]).items()},
             caido_proxy=_str(_obj(d["caido"])["proxy"]),
-            engine=EngineCfg(
-                enabled=_bool(engine["enabled"]),
-                provider=_str(engine["provider"]),
-                model=_str(engine["model"]),
-                model_trivial=_str(engine["model_trivial"]),
-            ),
         )
 
 

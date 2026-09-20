@@ -1,21 +1,13 @@
-"""Live engagement entrypoint: wire the real adapters from an engagement
-directory and drive the loop. Prerequisites and bring-up are in
-docs/RUNBOOK.md. This is the P2 live path -- it talks to real
-Memgraph/HexStrike/Jev/TencentDB, so it is exercised under operator
-supervision, never in CI.
+"""Jcyber CLI — MCP server for agent-driven pentesting.
 
-Three forms:
-
-    python -m jcyber <engagement-dir>   # run the loop
-    python -m jcyber intake <link>      # create the engagement dir + scope
-                                        # (bare-link default: full scan +
-                                        # critical); the operator then authors
-                                        # engagement.toon
-    python -m jcyber report <engagement-dir>   # render the Markdown report
-
-Caido findings ingestion is wired into the loop when CAIDO_API_URL is set (a
-NullProxy no-ops it otherwise); engine augmentation (Cerebras) is enabled per
-engagement in engagement.toon (jcyber.clients.engine).
+Commands:
+  serve              Start the MCP server (stdio transport). Connect your
+                     agent harness (Claude Code, etc.) to this server.
+  run <link>         Convenience: intake a target, start the MCP server,
+                     and print connection instructions.
+  report <dir>       Render the engagement report from Memgraph.
+  trace <dir>        Render the decision trace from Memgraph.
+  intake <link>      Create engagement directory from a bare link (no server).
 """
 
 from __future__ import annotations
@@ -24,153 +16,193 @@ import os
 import sys
 from pathlib import Path
 
-from .clients.caido import CaidoProxy, NullProxy
-from .clients.hexstrike import HexStrikeHands
-from .clients.jev import JevDecider
-from .clients.memgraph import MemgraphStore
-from .clients.tencentdb import TencentMemory
-from .clients.toon import CliToonCodec
-from .config import load_engagement, load_scope
-from .intake import Intake, intake_link
-from .loop import Iteration, Loop
-from .report import render
-from .trace import render as render_trace
+USAGE = """\
+usage: python -m jcyber <command> [args]
 
-USAGE = (
-    "usage: python -m jcyber <engagement-dir>\n"
-    "       python -m jcyber intake <link> [--sev SEVERITY]\n"
-    "       python -m jcyber report <engagement-dir>\n"
-    "       python -m jcyber trace <engagement-dir>"
-)
+commands:
+  serve                Start the MCP server (stdio transport)
+  run <link>           Intake target + start MCP server
+  report <dir>         Render engagement report
+  trace <dir>          Render decision trace
+  intake <link> [dir]  Create engagement directory from URL
+"""
 
 
-def run_engagement(home: Path) -> list[Iteration]:
+def run_serve() -> int:
+    """Start the MCP server for agent harness connection."""
+    from .mcp_server import run_server
+
+    run_server()
+    return 0
+
+
+def run_target(args: list[str]) -> int:
+    """Intake a target and start the MCP server."""
+    if not args:
+        print("usage: python -m jcyber run <url>", file=sys.stderr)
+        return 2
+    link = args[0]
+    severity = "critical"
+    if len(args) > 1 and args[1] in {"critical", "high", "medium", "low", "none"}:
+        severity = args[1]
+
+    from .clients.toon import CliToonCodec
+    from .intake import default_engagement_json, intake_link
+
+    result = intake_link(link, severity)
     codec = CliToonCodec()
-    cfg = load_engagement(home / "engagement.toon", codec)
-    scope = load_scope(home / "scope.toon", codec)
 
-    graph = MemgraphStore.connect(os.environ.get("MEMGRAPH_URI", "bolt://127.0.0.1:7687"))
-    hands = HexStrikeHands.connect(os.environ.get("HEXSTRIKE_URL", "http://127.0.0.1:8888"))
-    decider = JevDecider.from_env(model=cfg.jev_model)
-    memory = TencentMemory.connect(os.environ["JCYBER_MEMORY_URL"])
-    caido_url = os.environ.get("CAIDO_API_URL")
-    proxy = (
-        CaidoProxy.connect(caido_url, os.environ.get("CAIDO_API_TOKEN"))
-        if caido_url
-        else NullProxy()
-    )
+    # Create engagement directory
+    home = Path(os.environ.get("JCYBER_ENGAGEMENTS", "engagements")) / result.slug
+    home.mkdir(parents=True, exist_ok=True)
+    (home / "evidence" / "raw").mkdir(parents=True, exist_ok=True)
 
-    # recall priors once, at intake -- read at recall, never in the hot path
-    priors = memory.recall(scope.engagement, {"scope": scope.engagement})
+    # Write scope.toon
+    scope_path = home / "scope.toon"
+    if not scope_path.exists():
+        scope_path.write_text(codec.encode(result.scope_json))
+        print(f"[jcyber] wrote {scope_path}", file=sys.stderr)
 
-    loop = Loop(
-        engagement_id=scope.engagement,
-        cfg=cfg,
-        scope=scope,
-        decider=decider,
-        graph=graph,
-        hands=hands,
-        memory=memory,
-        proxy=proxy,
-        priors=priors,
-    )
-    try:
-        return loop.run()
-    finally:
-        graph.close()
-        hands.close()
-        memory.close()
-        proxy.close()
+    # Write engagement.toon
+    eng_path = home / "engagement.toon"
+    if not eng_path.exists():
+        eng_json = default_engagement_json(result.host, result.slug)
+        eng_path.write_text(codec.encode(eng_json))
+        print(f"[jcyber] wrote {eng_path}", file=sys.stderr)
+
+    print(f"[jcyber] engagement: {result.slug}", file=sys.stderr)
+    print(f"[jcyber] target: {result.host}", file=sys.stderr)
+    print(f"[jcyber] severity focus: {severity}", file=sys.stderr)
+    print("[jcyber] starting MCP server...", file=sys.stderr)
+
+    # Set engagement ID for the MCP server
+    os.environ["JCYBER_ENGAGEMENT_ID"] = result.slug
+    os.environ["JCYBER_ENGAGEMENT_DIR"] = str(home)
+
+    from .mcp_server import get_server_state, run_server
+
+    state = get_server_state()
+    state.engagement_id = result.slug
+
+    # Load scope and config into server state
+    from .config import Engagement, scope_from_json
+
+    state.scope = scope_from_json(result.scope_json)
+    state.cfg = Engagement.from_json(default_engagement_json(result.host, result.slug))
+
+    run_server()
+    return 0
 
 
 def run_report(home: Path) -> int:
+    from .clients.memgraph import MemgraphStore
+    from .clients.toon import CliToonCodec
+    from .config import load_engagement
+    from .report import render
+
     codec = CliToonCodec()
-    scope = load_scope(home / "scope.toon", codec)
-    graph = MemgraphStore.connect(os.environ.get("MEMGRAPH_URI", "bolt://127.0.0.1:7687"))
+    load_engagement(home / "engagement.toon", codec)
+    uri = os.environ.get("MEMGRAPH_URI", "bolt://127.0.0.1:7687")
+    store = MemgraphStore.connect(uri)
     try:
-        data = graph.report_data(scope.engagement)
+        data = store.report_data(home.name)
+        print(render(data))
     finally:
-        graph.close()
-    out = home / "reports" / "report.md"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(data))
-    print(f"wrote {out}")
+        store.close()
     return 0
 
 
 def run_trace(home: Path) -> int:
+    from .clients.memgraph import MemgraphStore
+    from .clients.toon import CliToonCodec
+    from .config import load_engagement
+    from .trace import render
+
     codec = CliToonCodec()
-    scope = load_scope(home / "scope.toon", codec)
-    graph = MemgraphStore.connect(os.environ.get("MEMGRAPH_URI", "bolt://127.0.0.1:7687"))
+    load_engagement(home / "engagement.toon", codec)
+    uri = os.environ.get("MEMGRAPH_URI", "bolt://127.0.0.1:7687")
+    store = MemgraphStore.connect(uri)
     try:
-        decisions = graph.decision_log(scope.engagement)
+        log = store.decision_log(home.name)
+        print(render(home.name, log))
     finally:
-        graph.close()
-    print(render_trace(scope.engagement, decisions), end="")
+        store.close()
     return 0
 
 
 def run_intake(args: list[str]) -> int:
     if not args or args[0] in {"-h", "--help"}:
-        print("usage: python -m jcyber intake <link> [--sev SEVERITY]")
-        return 2 if not args else 0
-    link = args[0]
-    severity = "critical"
-    if "--sev" in args:
-        i = args.index("--sev")
-        if i + 1 >= len(args):
-            print("usage: python -m jcyber intake <link> [--sev SEVERITY]")
-            return 2
-        severity = args[i + 1]
-    try:
-        intake: Intake = intake_link(link, severity)
-    except ValueError as e:
-        print(str(e))
+        print("usage: python -m jcyber intake <link> [dir] [--severity high]", file=sys.stderr)
         return 2
 
+    from .clients.toon import CliToonCodec
+    from .intake import default_engagement_json, intake_link
+
+    link = args[0]
+    severity = "critical"
+    out_dir: Path | None = None
+
+    i = 1
+    while i < len(args):
+        if args[i] == "--severity" and i + 1 < len(args):
+            severity = args[i + 1]
+            i += 2
+        else:
+            out_dir = Path(args[i])
+            i += 1
+
+    result = intake_link(link, severity)
     codec = CliToonCodec()
-    home = Path(os.environ.get("JCYBER_HOME", "./engagements")) / intake.slug
-    scope = home / "scope.toon"
-    if scope.exists():
-        print(f"already exists: {scope}")
-        return 1
+
+    home = out_dir or Path(os.environ.get("JCYBER_ENGAGEMENTS", "engagements")) / result.slug
     home.mkdir(parents=True, exist_ok=True)
-    scope.write_text(codec.encode(intake.scope_json).strip("\n") + "\n")
-    (home / "engagement.toon.template").write_text(
-        "# engagement.toon -- author this (canonically encoded, no edits needed here)\n"
-        "# copy the JSON block from schema/storage-layout.md, keep the gate\n"
-        "# thresholds exactly as documented, and set target/program to this engagement.\n"
-    )
-    print(f"created {scope} -- apex + all subdomains in scope, severity: {severity}")
-    toon_path = home / "engagement.toon"
-    print(f"next: author {toon_path} (JSON shape: schema/storage-layout.md), then run:")
-    print(f"  python -m jcyber {home}")
+    (home / "evidence" / "raw").mkdir(parents=True, exist_ok=True)
+
+    scope_path = home / "scope.toon"
+    scope_path.write_text(codec.encode(result.scope_json))
+    print(f"wrote {scope_path}")
+
+    eng_path = home / "engagement.toon"
+    eng_json = default_engagement_json(result.host, result.slug)
+    eng_path.write_text(codec.encode(eng_json))
+    print(f"wrote {eng_path}")
+
+    print(f"engagement: {result.slug}")
+    print(f"target: {result.host}")
     return 0
 
 
 def main(argv: list[str]) -> int:
     if len(argv) < 2 or argv[1] in {"-h", "--help"}:
         print(USAGE)
-        return 0 if len(argv) > 1 else 2
-    if argv[1] == "intake":
-        return run_intake(argv[2:])
-    if argv[1] == "report":
-        if len(argv) != 3:
-            print(USAGE)
+        return 0
+
+    cmd = argv[1]
+
+    if cmd == "serve":
+        return run_serve()
+
+    if cmd == "run":
+        return run_target(argv[2:])
+
+    if cmd == "report":
+        if len(argv) < 3:
+            print("usage: python -m jcyber report <engagement-dir>", file=sys.stderr)
             return 2
         return run_report(Path(argv[2]))
-    if argv[1] == "trace":
-        if len(argv) != 3:
-            print(USAGE)
+
+    if cmd == "trace":
+        if len(argv) < 3:
+            print("usage: python -m jcyber trace <engagement-dir>", file=sys.stderr)
             return 2
         return run_trace(Path(argv[2]))
-    if len(argv) != 2:
-        print(USAGE)
-        return 2
-    history = run_engagement(Path(argv[1]))
-    last = history[-1].gate.outcome.value if history else "none"
-    print(f"engagement ran {len(history)} iteration(s); last outcome: {last}")
-    return 0
+
+    if cmd == "intake":
+        return run_intake(argv[2:])
+
+    print(f"unknown command: {cmd}", file=sys.stderr)
+    print(USAGE, file=sys.stderr)
+    return 2
 
 
 if __name__ == "__main__":

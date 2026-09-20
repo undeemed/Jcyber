@@ -1,29 +1,32 @@
 [project]
 name = "jcyber"
 version = "0.0.0"
-description = "Agent-driven bug bounty / pentest framework: five systems, one chain."
+description = "MCP toolkit for agent-driven pentesting. The agent harness is the brain; Jcyber provides scope-gated tools, evidence graph, and finding lifecycle."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Jcyber contributors" }]
 keywords = [
-    "bug bounty",
-    "pentest",
-    "security",
     "offensive-security",
+    "pentest",
+    "bug-bounty",
+    "red-team",
+    "security",
     "mcp",
     "agent",
     "memgraph",
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "typesafe-sdk",   # Jev — the only model in the control path
-    "neo4j>=5",       # Memgraph session brain (Bolt); Memgraph is Bolt-compatible
-    "openai>=1.40",   # Cerebras BYOK engine (OpenAI-compatible /v1)
-    "httpx>=0.27",    # HexStrike REST, Caido API, TencentDB HTTP seam
+    "mcp>=1.0",       # MCP server (FastMCP) — the primary interface
+    "neo4j>=5",        # Memgraph session brain (Bolt); Memgraph is Bolt-compatible
+    "httpx>=0.27",     # HexStrike REST, Caido API, TencentDB HTTP seam
 ]
 
 [project.urls]
 Repository = "https://github.com/undeemed/Jcyber"
+
+[project.scripts]
+jcyber = "jcyber.__main__:main"
 
 [dependency-groups]
 dev = [

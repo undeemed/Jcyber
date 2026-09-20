@@ -32,28 +32,88 @@ class MemgraphStore:
             rec = s.run("RETURN 1 AS ok").single()
         return int(rec["ok"]) if rec is not None else 0
 
+    def bootstrap_engagement(
+        self, engagement_id: str, target: str, scope_items: list[dict[str, str]]
+    ) -> None:
+        """Create the Engagement node and insert scope nodes if they don't exist.
+        Idempotent — safe to call on an already-bootstrapped engagement."""
+        with self._driver.session() as s:
+            s.run(
+                "MERGE (e:Engagement {id: $eid}) "
+                "SET e.target=$target, e.status='active', e.phase='recon'",
+                eid=engagement_id,
+                target=target,
+            )
+            for item in scope_items:
+                s.run(
+                    "MERGE (sc:Scope {engagement_id: $eid, value: $val}) "
+                    "SET sc.kind=$kind, sc.in_scope=true",
+                    eid=engagement_id,
+                    val=item.get("value", ""),
+                    kind=item.get("kind", "host"),
+                )
+
     def project_state(self, engagement_id: str) -> JSON:
-        cypher = (
+        # Core state: phase, hypotheses, validated findings
+        cypher_core = (
             "MATCH (e:Engagement {id: $eid}) "
             "OPTIONAL MATCH (h:Hypothesis {engagement_id: $eid, status: 'open'}) "
             "OPTIONAL MATCH (f:Finding {engagement_id: $eid, status: 'validated'}) "
             "RETURN e.phase AS phase, collect(DISTINCT h.id) AS open_hypotheses, "
             "collect(DISTINCT f.id) AS validated_findings"
         )
+        # Recent evidence: bounded to last 20 by id (cheapest ordering)
+        cypher_evidence = (
+            "MATCH (ev:Evidence {engagement_id: $eid}) "
+            "RETURN ev.id AS id, ev.tool AS tool, ev.target AS target, ev.summary AS summary "
+            "ORDER BY ev.id DESC LIMIT 20"
+        )
+        # Tools already run: distinct tool names from evidence
+        cypher_tools = (
+            "MATCH (ev:Evidence {engagement_id: $eid}) "
+            "RETURN collect(DISTINCT ev.tool) AS tools_run"
+        )
+        # Unscored findings: need G3 severity scoring
+        cypher_unscored = (
+            "MATCH (f:Finding {engagement_id: $eid}) "
+            "WHERE f.severity IS NULL "
+            "RETURN collect(DISTINCT f.id) AS unscored_findings"
+        )
         with self._driver.session() as s:
-            rec = s.run(cypher, eid=engagement_id).single()
+            rec = s.run(cypher_core, eid=engagement_id).single()
+            ev_rows = list(s.run(cypher_evidence, eid=engagement_id))
+            tools_rec = s.run(cypher_tools, eid=engagement_id).single()
+            unscored_rec = s.run(cypher_unscored, eid=engagement_id).single()
         if rec is None:
-            return {"phase": "intake", "open_hypotheses": [], "validated_findings": []}
-        return {
+            return {
+                "phase": "intake",
+                "open_hypotheses": [],
+                "validated_findings": [],
+                "recent_evidence": [],
+                "tools_run": [],
+                "unscored_findings": [],
+            }
+        evidence: list[JSON] = [
+            {"id": r["id"], "tool": r["tool"], "target": r["target"], "summary": r["summary"]}
+            for r in ev_rows
+        ]
+        tools_run: list[JSON] = list(tools_rec["tools_run"]) if tools_rec else []
+        unscored: list[JSON] = list(unscored_rec["unscored_findings"]) if unscored_rec else []
+        result: dict[str, JSON] = {
             "phase": rec["phase"],
             "open_hypotheses": list(rec["open_hypotheses"]),
             "validated_findings": list(rec["validated_findings"]),
+            "recent_evidence": evidence,
+            "tools_run": tools_run,
+            "unscored_findings": unscored,
         }
+        return result
 
     def report_data(self, engagement_id: str) -> JSON:
         cypher = (
             "MATCH (f:Finding {engagement_id: $eid, status: 'validated'}) "
-            "OPTIONAL MATCH (f)-[:SUPPORTED_BY]->(e:Evidence) "
+            "OPTIONAL MATCH (h:Hypothesis)-[:DERIVES]->(f) "
+            "OPTIONAL MATCH (h)-[:SUPPORTED_BY]->(e:Evidence) "
             "RETURN f.id AS id, f.title AS title, f.severity AS severity, "
             "f.justification AS justification, "
             "collect(DISTINCT {id: e.id, tool: e.tool, summary: e.summary}) AS evidence "
@@ -137,6 +197,76 @@ class MemgraphStore:
                 verdict=verdict,
                 support=support,
             )
+
+    def create_hypothesis(self, engagement_id: str, hid: str, text: str, evidence_id: str) -> None:
+        with self._driver.session() as s:
+            s.run(
+                "MERGE (h:Hypothesis {engagement_id: $eid, id: $hid}) "
+                "SET h.text=$text, h.status='open', h.support=0.5 "
+                "WITH h "
+                "MATCH (ev:Evidence {engagement_id: $eid, id: $evid}) "
+                "MERGE (h)-[:SUPPORTED_BY]->(ev)",
+                eid=engagement_id,
+                hid=hid,
+                text=text,
+                evid=evidence_id,
+            )
+
+    def create_finding(self, engagement_id: str, fid: str, title: str, hypothesis_id: str) -> None:
+        with self._driver.session() as s:
+            s.run(
+                "MERGE (f:Finding {engagement_id: $eid, id: $fid}) "
+                "SET f.title=$title, f.status='provisional', f.severity=null "
+                "WITH f "
+                "MATCH (h:Hypothesis {engagement_id: $eid, id: $hid}) "
+                "MERGE (h)-[:DERIVES]->(f)",
+                eid=engagement_id,
+                fid=fid,
+                title=title,
+                hid=hypothesis_id,
+            )
+
+    def score_finding(self, engagement_id: str, fid: str, severity: int) -> None:
+        sev_map = {0: "none", 1: "low", 2: "medium", 3: "high", 4: "critical"}
+        label = sev_map.get(severity, "unknown")
+        status = "validated" if severity >= 3 else "provisional"
+        with self._driver.session() as s:
+            s.run(
+                "MATCH (f:Finding {engagement_id: $eid, id: $fid}) "
+                "SET f.severity=$sev, f.status=$status",
+                eid=engagement_id,
+                fid=fid,
+                sev=label,
+                status=status,
+            )
+
+    def unscored_findings(self, engagement_id: str) -> list[str]:
+        with self._driver.session() as s:
+            rows = list(
+                s.run(
+                    "MATCH (f:Finding {engagement_id: $eid}) "
+                    "WHERE f.severity IS NULL "
+                    "RETURN f.id AS id",
+                    eid=engagement_id,
+                )
+            )
+        return [r["id"] for r in rows]
+
+    def hypothesis_count(self, engagement_id: str) -> int:
+        with self._driver.session() as s:
+            rec = s.run(
+                "MATCH (h:Hypothesis {engagement_id: $eid}) RETURN count(h) AS n",
+                eid=engagement_id,
+            ).single()
+        return int(rec["n"]) if rec else 0
+
+    def finding_count(self, engagement_id: str) -> int:
+        with self._driver.session() as s:
+            rec = s.run(
+                "MATCH (f:Finding {engagement_id: $eid}) RETURN count(f) AS n",
+                eid=engagement_id,
+            ).single()
+        return int(rec["n"]) if rec else 0
 
 
 def _main() -> int:

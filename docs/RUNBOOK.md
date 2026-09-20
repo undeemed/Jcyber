@@ -1,107 +1,116 @@
-# Operator runbook (P2 — live engagement)
+# Operator runbook
 
-This is the human-supervised path. Jcyber runs only against **in-scope
-targets** (see the [legal note](FAQ.md#legal-note)). The loop's
-deterministic scope gate is load-bearing, not decorative: the scope the
-operator defines in `scope.toon` is the source of truth it enforces.
+Jcyber runs only against **in-scope targets** (see the
+[legal note](FAQ.md#legal-note)). The scope gate is enforced in code as a
+pre-hook on every MCP tool call.
 
 ## Prerequisites
 
-- Docker, Node 20+, `uv`, Python 3.12+.
-- Secrets in the operator environment (never written to any file in the repo):
-  - `TYPESAFE_API_KEY` — Jev (the control-path model).
-  - `CEREBRAS_API_KEY` — BYOK engine, only if `engine.enabled` in `engagement.toon`.
-  - `JCYBER_MEMORY_URL` — the TencentDB memory seam endpoint.
-- Optional overrides: `MEMGRAPH_URI` (default `bolt://127.0.0.1:7687`),
-  `HEXSTRIKE_URL` (default `http://127.0.0.1:8888`).
+- Docker, `uv`, Python 3.12+.
+- HexStrike server (clone and run, default `:8888`).
+- Optionally: Caido on `:8889`, TencentDB memory-core.
 
 ## Bring-up
 
 1. **Session brain.** Start Memgraph + Lab:
-   ```
-   docker compose -f deploy/docker-compose.memgraph.yml up -d
-   ```
-   Verify Bolt is answering (this is the P1 compose smoke). First confirm the
-   container is the thing listening on 7687 (`docker ps | grep jcyber-memgraph`;
-   `lsof -i:7687` should point at Docker, not a stray native Memgraph/Neo4j) so
-   the smoke can't pass against an unrelated server:
-   ```
-   uv run python -m jcyber.clients.memgraph --smoke   # expect: memgraph smoke ok: 1
-   ```
-   Then apply the schema with `$eid` set, per
-   `schema/memgraph/engagement-graph.cypher`.
-2. **Hands.** Start the HexStrike server (`python3 hexstrike_server.py`). It
-   defaults to `:8888`, which collides with Caido's API - run it elsewhere,
-   e.g. `HEXSTRIKE_PORT=8899 python3 hexstrike_server.py`, and set
-   `HEXSTRIKE_URL=http://127.0.0.1:8899`. Its boot deps are `flask psutil
-   requests aiohttp beautifulsoup4 selenium mitmproxy` (no angr/pwntools).
-   Only the closed-set tool endpoints in `orchestrator/loop.md` section 3 are
-   called; the `/api/intelligence/*` and `ai_*`/`bugbounty_*` surface is never
-   touched.
-3. **Proxy + findings.** Run Caido (`caido-cli --no-open --listen
-   127.0.0.1:8888` for the API/UI; the MITM proxy is `:8889` per project) with
-   a fresh project whose allow-scope is derived from `scope.toon`, passive
-   plugins only. To ingest findings, set `CAIDO_API_TOKEN` to a Caido access
-   token (PAT device-flow; see README Requirements).
-4. **Long-term brain.** Start the standalone SQLite memory-core (PLAN D1
-   option b) and point `JCYBER_MEMORY_URL` at it:
-
-   ```
-   uv run python deploy/memory_core.py 8130 ~/.jcyber/memory.db
-   export JCYBER_MEMORY_URL=http://127.0.0.1:8130
-   ```
-
-   It speaks the same 2-method seam (`/recall`, `/commit`) as hosted
-   TencentDB, so the backend swaps without touching the loop.
-
-## Intake
-
-Bare link (no scope items):
 
 ```
-uv run python -m jcyber intake <link>              # bare-link default
-uv run python -m jcyber intake <link> --sev high   # explicit severity focus
+docker compose -f deploy/docker-compose.memgraph.yml up -d
 ```
 
-This writes `$JCYBER_HOME/<slug>/scope.toon` - a full scan of the target
-(apex host plus all subdomains), 5 rps, critical-only report focus. A
-leading `www.` is stripped from the scope host, so the apex domain (and its
-sibling subdomains) are in scope, not just `www.*`. TOON is always
-`@toon-format/cli` output (Node required), never hand-formatted. Then
-author `engagement.toon` (JSON shape: `schema/storage-layout.md`) and run.
+Memgraph: `bolt://127.0.0.1:7687`, Lab: `http://127.0.0.1:3000`.
 
-Explicit scope: write encoder-produced `engagement.toon` and `scope.toon` by
-hand (shapes in `schema/storage-layout.md`); both are `@toon-format/cli`
-output.
-
-## Run
+2. **HexStrike.** Start the HexStrike server:
 
 ```
-uv run python -m jcyber engagements/<slug>
+cd /path/to/hexstrike && python hexstrike_server.py
 ```
 
-The entrypoint loads the config, recalls priors once, and drives the bounded
-loop (`observe -> decide -> gate -> act -> store -> learn`) until the
-engagement is report-ready, `commit` is chosen, three consecutive gates make
-no progress, or the tool-run budget is spent.
+Default: `http://127.0.0.1:8888`.
 
-Inspect an engagement (during or after a run):
+3. **Caido (optional).** Start Caido with the proxy pinned:
 
 ```
-uv run python -m jcyber report <dir>   # Markdown report of validated findings + evidence
-uv run python -m jcyber trace <dir>    # per-iteration :Decision audit (action, outcome, confidences)
+caido-cli --listen 127.0.0.1:8889
 ```
 
-## What is exercised only here
+4. **Install Jcyber:**
 
-The following seams are wired but verified live, under supervision — not in
-CI:
+```
+cd /path/to/Jcyber && uv sync
+```
 
-- Jev decisions against the real TypeSafe API.
-- HexStrike tool runs and Caido passive findings ingestion.
-- Cerebras engine augmentation (`route_via_engine`), when `engine.enabled`.
-- TencentDB recall at intake and commit at close.
-- G3 finding scoring (severity/bounty) and report rendering.
+## Starting the MCP server
 
-Stop and escalate to a human on any scope ambiguity, any below-floor
-`scope_safe`, or any operator-confirm (`confirm_parked`) gate outcome.
+### Option A: standalone server
+
+```
+python -m jcyber serve
+```
+
+Starts the MCP server on stdio. Connect your agent harness to it.
+
+### Option B: intake + serve
+
+```
+python -m jcyber run https://example.com
+```
+
+Creates the engagement directory, writes `scope.toon` and `engagement.toon`,
+then starts the MCP server with the engagement pre-loaded.
+
+### Option C: intake only (no server)
+
+```
+python -m jcyber intake https://example.com
+```
+
+Creates `engagements/<slug>/` with config files. Start the server separately.
+
+## Connecting an agent
+
+Add Jcyber as an MCP server in your agent config:
+
+```json
+{
+  "jcyber": {
+    "type": "stdio",
+    "command": "python",
+    "args": ["-m", "jcyber", "serve"]
+  }
+}
+```
+
+The agent loads `jcyber/SKILL.md` for methodology and drives the engagement
+through MCP tool calls.
+
+## Environment variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HEXSTRIKE_URL` | `http://127.0.0.1:8888` | HexStrike REST endpoint |
+| `MEMGRAPH_URI` | `bolt://127.0.0.1:7687` | Memgraph Bolt endpoint |
+| `JCYBER_MEMORY_URL` | (none) | TencentDB memory-core endpoint |
+| `JCYBER_ENGAGEMENTS` | `./engagements` | Base dir for engagement data |
+
+## Ports
+
+| Service | Port | Notes |
+|---------|------|-------|
+| HexStrike | 8888 | REST API, security tools |
+| Caido | 8889 | HTTP proxy, passive plugins |
+| Memgraph | 7687 | Bolt protocol |
+| Memgraph Lab | 3000 | Web UI |
+
+## Inspecting an engagement
+
+```
+python -m jcyber report engagements/example-com    # findings report
+python -m jcyber trace engagements/example-com      # decision audit
+```
+
+## Bare-link intake
+
+A bare link resolves to: full scan of the target (apex host + all subdomains),
+5 rps rate limit, critical-only report focus. A leading `www.` is stripped so
+the apex domain is in scope. Non-standard ports are preserved.
