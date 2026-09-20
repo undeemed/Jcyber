@@ -1,0 +1,57 @@
+[project]
+name = "jcyber"
+version = "0.0.0"
+description = "Agent-driven bug bounty / pentest framework: five systems, one chain."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Jcyber contributors" }]
+keywords = [
+    "bug bounty",
+    "pentest",
+    "security",
+    "offensive-security",
+    "mcp",
+    "agent",
+    "memgraph",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "typesafe-sdk",   # Jev — the only model in the control path
+    "neo4j>=5",       # Memgraph session brain (Bolt); Memgraph is Bolt-compatible
+    "openai>=1.40",   # Cerebras BYOK engine (OpenAI-compatible /v1)
+    "httpx>=0.27",    # HexStrike REST, Caido API, TencentDB HTTP seam
+]
+
+[project.urls]
+Repository = "https://github.com/undeemed/Jcyber"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "pyright>=1.1.390",
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+include = ["jcyber", "tests"]
+# Strict everywhere. The "unknown" rules fire only on partially-typed third-party
+# SDKs; they are relaxed via per-file pragmas in the adapter files that wrap
+# them (jcyber/clients/*), keeping the pure decision core fully strict.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"

@@ -13,22 +13,20 @@ services:
     ports:
       - "7687:7687"   # Bolt
     command:
-      - "--storage-wal-mode:on"
-      - "--storage-cache-allocator:LRU"
-      - "--logging-log-level:INFO"
+      - "--log-level=INFO"
     volumes:
       - memgraph-data:/var/lib/memgraph
       # Schema is applied per engagement from schema/memgraph/engagement-graph.cypher;
       # kept out of the image on purpose so a schema change is a code change here.
     healthcheck:
-      test: ["CMD-SHELL", "echo 'RETURN 1' | mgconsole -a 127.0.0.1 -p 7687 -q | grep -q 1 || exit 1"]
+      test: ["CMD-SHELL", "echo 'RETURN 1;' | mgconsole --host 127.0.0.1 --port 7687 --output-format=csv | grep -q 1 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 15s
 
   memgraph-lab:
-    image: memgraph/memgraph-platform:latest
+    image: memgraph/lab:latest
     container_name: jcyber-memgraph-lab
     ports:
       - "3000:3000"   # http://localhost:3000 — operator-facing graph UI
@@ -36,7 +34,8 @@ services:
       memgraph:
         condition: service_healthy
     environment:
-      - MEMGRAPH_MCP_HOSTS=memgraph:7687
+      - QUICK_CONNECT_MG_HOST=memgraph
+      - QUICK_CONNECT_MG_PORT=7687
 
 volumes:
   memgraph-data:

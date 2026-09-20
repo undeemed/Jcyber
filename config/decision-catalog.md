@@ -92,6 +92,7 @@ rejection — it is a queue item for the operator with the reasoning attached.
 |---|---|---|---|---|
 | `next_action` | choice | "Which single next action best advances the engagement given the state?" | `recon_passive` → enumerate without touching the target (subdomains, historical URLs, OSINT) · `recon_active` → contact the target lightly (port scan, tech fingerprint, wordlist dirb) · `probing` → targeted test of a specific open hypothesis (vuln class probe, parameter test) · `fuzzing` → high-volume payload/param fuzzing against a confirmed attack surface · `verify` → re-run a minimal PoC to confirm a finding still holds · `exploit` → active exploitation already authorized by the operator · `report` → stop probing, prepare report · `commit` → nothing left productive; distill and close | Auto-gates by action class (see table below) on the answer's **own confidence**. Low confidence + `exploit`/`fuzzing` → always `confirm`, never auto. |
 | `skill_pick` (asked only when the recalled skill list is non-empty AND one of its trigger boundaries matches the current state) | choice | "Which recalled skill, if any, should this action follow? Each option's description is the skill's trigger boundary and its validation rule. Do not force a fit — `none` is a real option." | one option per recalled skill id (description = its trigger boundary + validation rule) + `none` → "no recalled skill applies to this action" | No gate of its own. The selected skill only restructures the parameter set of the already-gated action (e.g. the sequential-ID IDOR skill supplies the account-swap step and the second-account confirmation). A skill never bypasses `scope_safe` or a class gate. |
+| `route_via_engine` (asked only when `cfg.engine.enabled` is true AND a gated non-commit action is about to run) | choice | "Should this already-gated action be augmented by the engine (BYOK LLM: payload suggestion, parameter-set variant over a closed set, or response interpretation)?" | `yes` → "a second inference pass would materially improve this action" · `no` → "the tool call as planned is sufficient; avoid the extra inference cost" | No gate of its own. Runs strictly **after** the two-layer scope gate (G0) + the action's per-class gate have passed; it never opens a new class, tool, or target. Engine output enters as `:Evidence` (`tool: 'engine/<model>'`) through the standard dedup/hypothesis gates, and the answer is recorded on the `:Decision` node (`answers_json`). |
 
 **Action-class auto thresholds** (confidence of the chosen option):
 
@@ -100,22 +101,40 @@ rejection — it is a queue item for the operator with the reasoning attached.
 | recon_passive | 0.80 | queue |
 | recon_active | 0.85 | queue |
 | probing | 0.90 | confirm |
+| verify | 0.90 | re-decide |
 | fuzzing | 0.95 | confirm |
 | report | 0.95 | confirm |
-| exploit | 0.95 | confirm |
+| exploit | — (never auto) | confirm |
 | skill via `skill_pick` | (n/a) | follows the class gate of the action it parameterizes |
 
 Below-threshold recon goes to `queue` (operator can bulk-approve); below-
 threshold probing/fuzzing/report go to `confirm` (single approval, parking the
-action with full audit record). Any action failing `scope_safe` → `block`, no
-queue.
+action with full audit record). A below-floor `scope_safe` goes to `queue`
+(the loop records it `confirm_parked` and parks); only the deterministic
+out-of-scope match (loop gate 1) produces `block`.
+
+`commit` is the *terminal* action of the loop: no class gate, no tool run,
+no parking. On a chosen `commit`, the orchestrator renders the report
+(forced, regardless of `report_ready`) and runs the final `tdb.commit` +
+close. `verify` below its threshold does not park — it simply re-decides
+next iteration (a re-POC is not an operator decision).
+
+**Engine model policy (BYOK, via Cerebras — `https://api.cerebras.ai/v1`):**
+default `qwen-3.8-27b` for all engine calls; `gpt-oss-120b` is reserved for
+trivial / low-reasoning variants (format-only rewrites, response
+classification). Both are pinnable per engagement in `engagement.toon`
+(`engine.model`, `engine.model_trivial`) — the repo never hard-codes a
+model. The key is read at runtime from the operator env var
+`CEREBRAS_API_KEY`; its value never appears in the repo or in any `.toon`.
+Model IDs per the Cerebras inference docs (public endpoints as of
+2026-09-19); re-verify at bring-up.
 
 ### G2 — Hypothesis lifecycle (asked when new evidence lands or an H is aged)
 
 | qid | type | instructions | criteria | gate |
 |---|---|---|---|---|
 | `h_<id>_supported` (one per open H with fresh evidence) | noul | "Given the evidence attached to H-###, how likely is H-### true?" | optional true/false rubric: supported vs falsified | support ≥ **0.80** → auto **promote** (H→F provisional). support ≤ **0.20** → auto **retire** (record cause). Band 0.20–0.80 → stays open; one more probe decision allowed per evidence batch, then forced retire-or-promote revisit at next iteration. |
-| `e_class_<new_evidence>` | choice | "Is this new evidence a new fact, a duplicate of an existing one, or an extension of it?" | `new` → insert as fresh E-### · `duplicate` → link `DUP_OF`, return existing id · `extension` → attach to existing E-###, update summary | Deterministic pre-check first (sha256 + vector top-k similarity); only *ambiguous* items (similarity between 0.75 and 0.95, or same target+tool but different outcome) reach Jev. |
+| `e_latest_class` (one per new evidence item that survived the deterministic pre-check) | choice | "Is this new evidence a new fact, a duplicate of an existing one, or an extension of it?" | `new` → insert as fresh E-### · `duplicate` → link `DUP_OF`, return existing id · `extension` → attach to existing E-###, update summary | Deterministic pre-check first (sha256 + vector top-k similarity); only *ambiguous* items (similarity between 0.75 and 0.95, or same target+tool but different outcome) reach Jev. |
 | `chain_probe` (asked only when ≥1 demonstrated/confirmed partial chain exists) | noul | "How likely does this partial chain extend into a materially more severe one?" | — | ≥ 0.80 → orchestrator emits a `probing`-class follow-up targeting the chain's next hop automatically (subject to G0 + class gate). |
 
 ### G3 — Finding assessment (asked when a provisional F is confirmed, or updated)

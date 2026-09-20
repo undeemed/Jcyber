@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-type-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - name: ruff lint + format
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: pyright (strict)
+        run: uv run pyright
+      - name: pytest
+        run: uv run pytest
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: doc consistency (toon round-trip + thresholds + mermaid + links)
+        run: bash scripts/check_docs.sh
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync
+      - name: boot Memgraph
+        run: docker compose -f deploy/docker-compose.memgraph.yml up -d
+      - name: bolt smoke (retry until ready)
+        run: |
+          for i in $(seq 1 30); do
+            uv run python -m jcyber.clients.memgraph --smoke && exit 0
+            sleep 2
+          done
+          echo "memgraph never became ready" >&2
+          exit 1

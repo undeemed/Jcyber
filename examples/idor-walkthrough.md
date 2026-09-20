@@ -9,9 +9,10 @@ GET `/api/users/{id}` returns the full user profile for any sequential id,
 giving bulk PII exposure (email, phone, password-hash-adjacent fields) —
 chain: account enumeration → IDOR read → bulk data exposure.
 
-Scenario: engagement `acme-lab`, operator authorized `acme-lab.example`,
-`*.acme-lab.example`, `acme-lab.example/api/`, `203.0.113.0/24`; test
-accounts `jcyber-test1@` / `jcyber-test2@acme-lab.example` in scope.
+Scenario: engagement `acme-lab`; the scope items `acme-lab.example`,
+`*.acme-lab.example`, `acme-lab.example/api/`, `203.0.113.0/24` are defined
+by the operator in `scope.toon`; test accounts `jcyber-test1@` /
+`jcyber-test2@acme-lab.example` in scope.
 
 ## Step 0 — Intake (operator + storage layout)
 
@@ -82,15 +83,22 @@ typed answers with probabilities, both gate values, `outcome: auto`,
 
 ```text
 http_repeater           # probing class, preferred tool for exact-request replay
+  proxy: 127.0.0.1:8889                               # from config (caido.proxy)
   request: GET https://acme-lab.example/api/users/4821        # account 1's own id
 browser_agent_inspect   # establishes test1's real id (its dashboard GET /me)
+  proxy: 127.0.0.1:8889
 http_repeater           # GET …/users/4822  (swap id)              # skill step 1
+  proxy: 127.0.0.1:8889
 http_repeater           # GET …/users/4822 Accept: application/json  # skill step 2
+  proxy: 127.0.0.1:8889
 http_repeater           # GET …/users/4822 as jcyber-test2@       # skill step 3 (confirm)
+  proxy: 127.0.0.1:8889
 ```
 
 Every target string came from `scope.toon` or an established
-`:Endpoint`/`E-###` node; no Jev text reached the wire.
+`:Endpoint`/`E-###` node; the proxy endpoint came from `config`
+(`caido.proxy`) — in every case a closed-set slot, never Jev text reaching
+the wire.
 
 Raw output: `evidence/raw/9f3c…b21a.json` (name = sha256 of the bytes,
 extension from content type). The 4822 response is a full profile JSON for

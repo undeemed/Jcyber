@@ -1,0 +1,22 @@
+# Local mirror of CI for fast feedback. CI and no-mistakes remain the enforced
+# gates; these hooks are optional convenience. Install: `pre-commit install`.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: local
+    hooks:
+      - id: pyright
+        name: pyright
+        entry: uv run pyright
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: check-docs
+        name: doc consistency (toon + thresholds + mermaid + links)
+        entry: bash scripts/check_docs.sh
+        language: system
+        pass_filenames: false

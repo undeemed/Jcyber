@@ -16,10 +16,11 @@ Docs-first: the load-bearing artifacts are the specs, not the code.
 2. **Thresholds have one home per doc set and are byte-identical across
    files.** Canonical set (verify against `config/decision-catalog.md`
    before changing any one): per-class auto gates
-   `recon_passive 0.80 / recon_active 0.85 / probing 0.90 / fuzzing 0.95 /
-   report 0.95` (else `queue` for recon, `confirm` for probing/fuzzing/
-   report/exploit); `scope_model_floor 0.90`; hypothesis verdicts
-   `promote ≥ 0.80`, `retire ≤ 0.20` (noul support);
+   `recon_passive 0.80 / recon_active 0.85 / probing 0.90 / verify 0.90 /
+   fuzzing 0.95 / report 0.95` (else `queue` for recon, `confirm` for
+   probing/fuzzing/report/exploit, `verify` re-decides next iteration);
+   `scope_model_floor 0.90`;
+   hypothesis verdicts `promote ≥ 0.80`, `retire ≤ 0.20` (noul support);
    `report_ready ≥ 0.95`. A change propagates: catalog, `engagement.toon`
    (+ its JSON), `loop.md`, `examples/idor-walkthrough.md` — all at once,
    or not at all.
@@ -45,7 +46,13 @@ Docs-first: the load-bearing artifacts are the specs, not the code.
    later).
 7. **HexStrike is the hands only.** Never invoke its `/api/intelligence/*`
    or `bugbounty_*`/`ai_*` MCP tools — a second decision layer in the loop
-   is exactly the failure mode this architecture prevents.
+   is exactly the failure mode this architecture prevents. Source-verified:
+   v6's "Intelligent Decision Engine" and its 12+ "AI agents" are hard-coded
+   heuristics (no model, no BYOK, no LLM plumbing). Jcyber's BYOK engine is
+   *ours*: a Jev-dispatched tool under one atomic catalog question
+   (`route_via_engine`), Cerebras via operator env `CEREBRAS_API_KEY`, model
+   pin in `engagement.toon` (`engine.model`), output evidence-only, recorded
+   on the `:Decision` node — never an autonomous layer.
 
 ## Repo layout (what goes where)
 
@@ -61,9 +68,14 @@ Docs-first: the load-bearing artifacts are the specs, not the code.
 | `deploy/docker-compose.memgraph.yml` | P1 session brain (Memgraph :7687 + Lab :3000) | schema is applied per engagement, never baked into images |
 | `examples/idor-walkthrough.md` | one finding (AC-001) traced through all five components | example must stay consistent with every spec file |
 | `engagements/` | live engagement state (in the future) | **gitignored — never committed** |
+| `docs/` | `diagrams.md` (Mermaid: stack + decision gate), `FAQ.md` (FAQ + comparison vs other pentest tools), `RUNBOOK.md` (live bring-up) | diagrams are the canonical source the README/PLAN link to |
+| `jcyber/` | Python runtime: reflex core (loop, gates, scope, normalizer, state) + adapters in `jcyber/clients/`; bare-link intake (`jcyber/intake.py` — scope-only synthesis) | **no gate values in code** (invariant #2); TOON via the codec port only (invariant #1) |
+| `tests/` | pytest: deterministic-gate safety, loop replay, live-Memgraph integration | canonical fixtures mirror `schema/storage-layout.md` JSON; real loaders, fakes elsewhere |
+| `scripts/check_docs.sh` | docs-invariants gate: TOON round-trip, threshold identity, mermaid sync, README manifest, links | must pass before any push; it is the enforcement of invariants #1 and #2 |
+| `.github/workflows/ci.yml` | CI: lint + pyright + pytest, docs gate, Memgraph smoke | CI is the enforcement gate; pre-commit hooks are a local mirror only |
 
-- `CLAUDE.md` mirrors this file (Claude Code entry point); update both
-  together or keep edits to AGENTS.md only and re-sync the mirror.
+`CLAUDE.md` mirrors this file (Claude Code entry point); keep them in
+sync.
 
 ## Example engagement identity (stay consistent)
 
@@ -71,7 +83,7 @@ The walkthrough uses, and any new example must reuse: slug `acme-lab`,
 target `acme-lab.example`, IDs `H-###` / `E-###` / `F-###` / `VF-###` /
 `AC-###` (sequential per engagement, never reused — Prometheus doctrine),
 raw files `evidence/raw/<sha256>.<ext>`, outbox
-`learnings/{atoms.md,skills.md,scenario.md,status.json}`.
+`learnings/{atoms.md,skills.md,scenario.md,status.toon}`.
 
 ## Docs discipline
 

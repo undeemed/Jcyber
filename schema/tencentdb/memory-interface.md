@@ -76,7 +76,7 @@ Input is the distiller's outbox files (see `schema/storage-layout.md` →
   a passing validation check), each with trigger boundary + validation rule
 - `scenario.md` — the engagement's L2 scenario update: phase reached, what was
   done, what was abandoned and why
-- `status.json` — last distiller run state
+- `status.toon` — last distiller run state, kept TOON: a `run{started, items, status}` object plus a per-item table `results[N:]{item, action}:` (action = created/updated/superseded/rejected; rejected rows carry the reason)
 
 ```python
 commit(engagement, atoms=[...], skills=[...], scenario={...})
@@ -88,7 +88,7 @@ guaranteed top-layer→raw traceability link (each committed atom/skill
 carries the engagement + evidence ids it was distilled from, so any
 "priors" line can be traced back to `E-###` in that engagement's graph).
 Returns per-item: `created | updated | superseded: <id> | rejected: <reason>` —
-the rejection reasons are appended to `learnings/status.json`.
+the rejection reasons are appended to `learnings/status.toon`.
 
 ## Why the seam is this shape
 
@@ -103,10 +103,10 @@ the rejection reasons are appended to `learnings/status.json`.
   `recall` fails open with an **explicit empty** (`priors: (long-term
   memory unavailable — this run starts cold)`) and the loop proceeds; no
   silent degradation. If `commit` fails at close, the outbox files stay on
-  disk, `status.json` records the error, and `ycb learnings export` retries —
+  disk, `status.toon` records the error, and `ycb learnings export` retries —
   nothing is lost, just deferred.
 - **Write is a one-shot, not a stream.** Durable knowledge should be
   distilled *once* on closure (when the phase is settled and causes are
   known), not drip-fed mid-run: partial-phase facts are the source of
-  mis-remembered state, and `status.json` gives us the retry primitive
+  mis-remembered state, and `status.toon` gives us the retry primitive
   instead.

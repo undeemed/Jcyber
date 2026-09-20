@@ -31,9 +31,9 @@ engagements/<slug>/
     atoms.md                # new L1 atom candidates, one per line, with ids
     skills.md               # skill candidates (worked bypass → procedure)
     scenario.md             # L2 scenario update (phase, done, abandoned+why)
-    status.json             # last distiller run, uncommitted count, errors
+    status.toon             # last distiller run, uncommitted count, errors
   state/
-    snapshot.json           # last projected Jev state (debug/replay)
+    snapshot.toon           # last projected Jev state (debug/replay)
     decisions.jsonl         # Decision-node export (audit, human-browsable)
 ```
 
@@ -54,13 +54,16 @@ Shown here is the TOON encoding of the JSON shown next to it.
 ```toon
 # scope.toon — exactly what @toon-format/cli emits for the JSON below
 engagement: acme-lab
-authorized:
-  reference: BBprogram acme-lab scope 2026-09-19
-in_scope[4]{kind,value,note}:
-  host,acme-lab.example,""
-  prefix,*.acme-lab.example,""
-  path,acme-lab.example/api/,no /admin (see out)
-  ip_range,203.0.113.0/24,""
+in_scope[4]:
+  - kind: host
+    value: acme-lab.example
+  - kind: prefix
+    value: *.acme-lab.example
+  - kind: path
+    value: acme-lab.example/api/
+    note: no /admin (see out)
+  - kind: ip_range
+    value: 203.0.113.0/24
 out_of_scope[2]{kind,value,note}:
   host,staging.acme-lab.example,no active scanning
   path,acme-lab.example/pay/,"payment: Do Not Test"
@@ -68,13 +71,13 @@ constraints:
   rate_limit_rps: 5
   time_window: "08:00-20:00 UTC"
   no_fuzzing_on[2]: /checkout,/pay
+  severity: critical
   authorized_accounts[2]: jcyber-test1@acme-lab.example,jcyber-test2@acme-lab.example
 ```
 
 ```json
 {
   "engagement": "acme-lab",
-  "authorized": { "reference": "BBprogram acme-lab scope 2026-09-19" },
   "in_scope": [
     { "kind": "host",     "value": "acme-lab.example" },
     { "kind": "prefix",   "value": "*.acme-lab.example" },
@@ -89,6 +92,7 @@ constraints:
     "rate_limit_rps": 5,
     "time_window": "08:00-20:00 UTC",
     "no_fuzzing_on": ["/checkout", "/pay"],
+    "severity": "critical",
     "authorized_accounts": ["jcyber-test1@acme-lab.example", "jcyber-test2@acme-lab.example"]
   }
 }
@@ -99,6 +103,13 @@ Gate rule (deterministic layer): an action is **in-scope** iff its target
 `out_of_scope` item AND satisfies `constraints`. Out-of-scope always wins on
 conflict. The Jev `scope_safe` noul is a *second* check on top — never a
 substitute.
+
+`constraints.severity` is the report-triage floor, vocabulary aligned to
+the G3 severity legend in `config/decision-catalog.md`
+(`none`=0, `low`=1, `medium`=2, `high`=3, `critical`=4): the report keeps
+findings whose stored severity score is at or above that level's score
+(default `critical` means criticals only). It filters at report time and
+never touches the gate above.
 
 ## Engagement config shape
 
@@ -111,20 +122,29 @@ program: acme-lab bug bounty
 jev:
   model: jev-latest
   state_budget_chars: 24000
-gates[6:]{auto,else}:
+gates[7:]{auto,else}:
   recon_passive: 0.8,queue
   recon_active: 0.85,queue
   probing: 0.9,confirm
+  verify: 0.9,re-decide
   fuzzing: 0.95,confirm
   report: 0.95,confirm
   scope_model_floor: 0.9,queue
 verdicts:
   promote: 0.8
   retire: 0.2
+report_ready: 0.95
 budget:
   wallclock_hours: 24
   jev_calls: 500
   tool_runs: 300
+caido:
+  proxy: "127.0.0.1:8889"
+engine:
+  enabled: false
+  provider: cerebras
+  model: qwen-3.8-27b
+  model_trivial: gpt-oss-120b
 ```
 
 ```json
@@ -136,18 +156,30 @@ budget:
     "recon_passive":     { "auto": 0.80, "else": "queue" },
     "recon_active":      { "auto": 0.85, "else": "queue" },
     "probing":           { "auto": 0.90, "else": "confirm" },
+    "verify":            { "auto": 0.90, "else": "re-decide" },
     "fuzzing":           { "auto": 0.95, "else": "confirm" },
     "report":            { "auto": 0.95, "else": "confirm" },
     "scope_model_floor": { "auto": 0.90, "else": "queue" }
   },
   "verdicts": { "promote": 0.8, "retire": 0.2 },
-  "budget": { "wallclock_hours": 24, "jev_calls": 500, "tool_runs": 300 }
+  "report_ready": 0.95,
+  "budget": { "wallclock_hours": 24, "jev_calls": 500, "tool_runs": 300 },
+  "caido": { "proxy": "127.0.0.1:8889" },
+  "engine": { "enabled": false, "provider": "cerebras",
+              "model": "qwen-3.8-27b", "model_trivial": "gpt-oss-120b" }
 }
 ```
 
 
 (Per the open question D4 in PLAN.md, the `model` pin is set per engagement:
 use a dated Jev version for reproducible runs.)
+
+`engine` notes: the LLM key is the operator env var `CEREBRAS_API_KEY` —
+read at runtime, **never** written into `engagement.toon`, the vault, or
+any file in this repo. Models are Cerebras API ids (per the Cerebras
+inference docs, re-fetched 2026-09-19; re-verify at bring-up), pinnable
+per engagement; `enabled: false` keeps the
+loop engine-free until the operator opts in (loop.md §3).
 
 ## Git policy
 
