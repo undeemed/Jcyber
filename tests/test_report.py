@@ -40,3 +40,26 @@ def test_findings_render_with_linked_evidence() -> None:
 def test_render_is_deterministic() -> None:
     data: JSON = {"engagement": "x", "findings": [{"id": "VF-001", "title": "t", "severity": 3}]}
     assert render(data) == render(data)
+
+
+def test_evidence_and_findings_sorted_by_id() -> None:
+    # report_data (live Cypher collect) returns evidence unordered; render must
+    # sort by id so the Markdown is byte-deterministic run to run.
+    data: JSON = {
+        "engagement": "x",
+        "findings": [
+            {"id": "VF-002", "title": "b", "severity": 3, "evidence": []},
+            {
+                "id": "VF-001",
+                "title": "a",
+                "severity": 4,
+                "evidence": [
+                    {"id": "E-009", "tool": "ffuf", "summary": "late"},
+                    {"id": "E-002", "tool": "nuclei", "summary": "early"},
+                ],
+            },
+        ],
+    }
+    md = render(data)
+    assert md.index("VF-001") < md.index("VF-002")  # findings by id
+    assert md.index("E-002") < md.index("E-009")  # evidence by id

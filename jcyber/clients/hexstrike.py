@@ -7,7 +7,9 @@ MCP-tool-name -> endpoint-slug mapping (e.g. nmap_scan -> nmap, http_repeater
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
+from typing import cast
 
 import httpx
 
@@ -30,6 +32,21 @@ _TOOL_ENDPOINT: dict[str, str] = {
 }
 
 
+def _extract(text: str) -> str:
+    """HexStrike wraps tool output in a JSON envelope ({stdout, stderr,
+    return_code, ...}); surface stdout so evidence summaries carry the tool
+    result, not the envelope. Non-JSON responses pass through unchanged."""
+    try:
+        obj: object = json.loads(text)
+    except ValueError:
+        return text
+    if isinstance(obj, dict):
+        out = cast("dict[str, object]", obj).get("stdout")
+        if isinstance(out, str) and out.strip():
+            return out.strip()
+    return text
+
+
 class HexStrikeHands:
     def __init__(self, client: httpx.Client, path_template: str = "/api/tools/{tool}") -> None:
         self._client = client
@@ -48,4 +65,4 @@ class HexStrikeHands:
         slug = _TOOL_ENDPOINT.get(tool, tool)
         resp = self._client.post(self._path.format(tool=slug), json=dict(params))
         resp.raise_for_status()
-        return resp.text
+        return _extract(resp.text)

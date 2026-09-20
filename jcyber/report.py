@@ -17,7 +17,9 @@ def render(data: JSON) -> str:
             engagement = eng
         raw = data.get("findings")
         if isinstance(raw, list):
-            findings = [f for f in raw if isinstance(f, dict)]
+            findings = sorted(
+                (f for f in raw if isinstance(f, dict)), key=lambda f: str(f.get("id", ""))
+            )
 
     lines = [f"# Jcyber report: {engagement}", ""]
     if not findings:
@@ -36,7 +38,9 @@ def render(data: JSON) -> str:
         evidence: list[dict[str, JSON]] = []
         raw_ev = f.get("evidence")
         if isinstance(raw_ev, list):
-            evidence = [e for e in raw_ev if isinstance(e, dict)]
+            evidence = sorted(
+                (e for e in raw_ev if isinstance(e, dict)), key=lambda e: str(e.get("id", ""))
+            )
         lines.append(f"- evidence ({len(evidence)}):")
         for e in evidence:
             lines.append(f"  - {e.get('id', 'E-?')} [{e.get('tool', '')}] {e.get('summary', '')}")

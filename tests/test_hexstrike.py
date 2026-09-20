@@ -33,3 +33,23 @@ def test_unmapped_tool_passes_through() -> None:
     hands = _hands_capturing(seen)
     hands.call("api_fuzzer", {"target": "x"})
     assert seen == ["/api/tools/api_fuzzer"]
+
+
+def _hands_returning(response: httpx.Response) -> HexStrikeHands:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return response
+
+    client = httpx.Client(base_url="http://127.0.0.1:8888", transport=httpx.MockTransport(handler))
+    return HexStrikeHands(client)
+
+
+def test_call_surfaces_stdout_from_json_envelope() -> None:
+    hands = _hands_returning(
+        httpx.Response(200, json={"stdout": "PORT 80 open", "stderr": "", "return_code": 0})
+    )
+    assert hands.call("nmap_scan", {"target": "x"}) == "PORT 80 open"
+
+
+def test_call_passes_through_non_json() -> None:
+    hands = _hands_returning(httpx.Response(200, text="raw text output"))
+    assert hands.call("nmap_scan", {"target": "x"}) == "raw text output"
