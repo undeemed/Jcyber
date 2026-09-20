@@ -12,7 +12,10 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .clients.jev import JevClassifier
 
 from mcp.server.mcpserver import MCPServer
 
@@ -492,6 +495,147 @@ def commit_learnings() -> str:
     atoms = distill(projection)
     _state.memory.commit(_state.engagement_id, atoms)
     return json.dumps({"status": "committed", "atoms": atoms}, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Jev classifier tools — optional accelerators, never in the control path
+# ---------------------------------------------------------------------------
+
+_jev: JevClassifier | None = None
+
+
+def _get_jev() -> JevClassifier:
+    global _jev
+    if _jev is None:
+        try:
+            from .clients.jev import JevClassifier as _JC
+
+            _jev = _JC.from_env()
+        except Exception as e:
+            raise ValueError(f"Jev unavailable (set TYPESAFE_API_KEY): {e}") from e
+    return _jev
+
+
+@mcp.tool()
+def triage_evidence(evidence_id: str) -> str:
+    """Fast classification: does this evidence indicate a vulnerability?
+
+    Returns a probability (0-1). High probability = worth investigating.
+    This is a Jev gut-check, not a definitive answer. Optional accelerator —
+    the agent can always read the evidence and decide itself.
+
+    evidence_id: the E-### id to triage
+    """
+    graph = _require_graph()
+    jev = _get_jev()
+    state = graph.project_state(_state.engagement_id)
+    # Find the evidence record
+    summary = ""
+    tool_name = ""
+    target = ""
+    if isinstance(state, dict):
+        recent = state.get("recent_evidence")
+        if isinstance(recent, list):
+            for ev in recent:
+                if isinstance(ev, dict) and ev.get("id") == evidence_id:
+                    summary = str(ev.get("summary", ""))
+                    tool_name = str(ev.get("tool", ""))
+                    target = str(ev.get("target", ""))
+                    break
+    if not summary:
+        return json.dumps({"error": f"evidence {evidence_id} not found in recent state"})
+    result = jev.triage(tool_name, target, summary)
+    return json.dumps(
+        {
+            "evidence_id": evidence_id,
+            "vuln_probability": round(result.vuln_probability, 3),
+            "interesting": result.vuln_probability >= 0.6,
+        }
+    )
+
+
+@mcp.tool()
+def suggest_severity(finding_id: str, title: str, evidence_summary: str) -> str:
+    """Fast severity classification for a finding. Returns a suggested
+    severity level (none/low/medium/high/critical) with confidence.
+
+    This is a Jev gut-check — the agent can use it as input to score_finding
+    or override it entirely. Optional accelerator.
+
+    finding_id: the F-### id
+    title: finding title
+    evidence_summary: brief description of what was found
+    """
+    jev = _get_jev()
+    result = jev.severity(title, evidence_summary)
+    return json.dumps(
+        {
+            "finding_id": finding_id,
+            "suggested_severity": result.severity,
+            "score": round(result.score, 3),
+            "confidence": round(result.confidence, 3),
+        }
+    )
+
+
+@mcp.tool()
+def check_duplicate(new_evidence_summary: str) -> str:
+    """Check if new evidence is substantially similar to existing evidence
+    already in the graph. Returns a probability (0-1).
+
+    Use before creating a hypothesis to avoid duplicating work.
+    Optional accelerator — smarter than sha256 exact match, cheaper than
+    the agent comparing all evidence summaries.
+
+    new_evidence_summary: summary of the evidence to check
+    """
+    graph = _require_graph()
+    jev = _get_jev()
+    state = graph.project_state(_state.engagement_id)
+    existing: list[str] = []
+    if isinstance(state, dict):
+        recent = state.get("recent_evidence")
+        if isinstance(recent, list):
+            for ev in recent:
+                if isinstance(ev, dict):
+                    s = ev.get("summary")
+                    if isinstance(s, str):
+                        existing.append(s)
+    if not existing:
+        return json.dumps({"duplicate_probability": 0.0, "is_duplicate": False})
+    result = jev.check_duplicate(new_evidence_summary, existing)
+    return json.dumps(
+        {
+            "duplicate_probability": round(result.duplicate_probability, 3),
+            "is_duplicate": result.duplicate_probability >= 0.7,
+            "compared_against": len(existing),
+        }
+    )
+
+
+@mcp.tool()
+def suggest_next_tool() -> str:
+    """Suggest which tool category to run next, given the engagement state.
+
+    Returns a ranked hint — the agent can take it or ignore it. This is an
+    optional accelerator, never a gate or control-path decision. The agent
+    always decides what to actually run.
+
+    Categories: recon_passive, recon_active, probing, fuzzing, verify.
+    """
+    graph = _require_graph()
+    jev = _get_jev()
+    state = graph.project_state(_state.engagement_id)
+    state_text = json.dumps(state, indent=2)[:8000]
+    result = jev.suggest_tool_category(state_text)
+    return json.dumps(
+        {
+            "suggested_category": result.category,
+            "confidence": round(result.confidence, 3),
+            "probabilities": {k: round(v, 3) for k, v in result.probabilities.items()},
+            "note": "This is a hint. The agent decides what to run.",
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

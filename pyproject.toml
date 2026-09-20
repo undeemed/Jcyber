@@ -22,6 +22,9 @@ dependencies = [
     "httpx>=0.27",     # HexStrike REST, Caido API, TencentDB HTTP seam
 ]
 
+[project.optional-dependencies]
+jev = ["typesafe-sdk"]  # Jev classifiers (triage, severity, duplicate, tool hint)
+
 [project.urls]
 Repository = "https://github.com/undeemed/Jcyber"
 
@@ -33,6 +36,7 @@ dev = [
     "ruff>=0.6",
     "pyright>=1.1.390",
     "pytest>=8",
+    "typesafe-sdk",    # needed for pyright to type-check jcyber/clients/jev.py
 ]
 
 [build-system]
