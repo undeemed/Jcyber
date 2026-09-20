@@ -9,14 +9,15 @@ their ports and adapters exist, but the driver below covers the core chain."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 
 from .config import Engagement
 from .decide import decide
 from .gate import evaluate
 from .learn import distill
 from .normalize import normalize
-from .ports import Decider, GraphStore, Hands, Memory
+from .ports import Decider, GraphStore, Hands, Memory, Proxy
 from .router import route
 from .state import build_state
 from .types import JSON, ActionClass, Decision, GateResult, Outcome, Scope
@@ -28,6 +29,10 @@ class Iteration:
     close: bool
 
 
+def _empty_priors() -> JSON:
+    return {}
+
+
 @dataclass
 class Loop:
     engagement_id: str
@@ -37,6 +42,8 @@ class Loop:
     graph: GraphStore
     hands: Hands
     memory: Memory
+    proxy: Proxy
+    priors: JSON = field(default_factory=_empty_priors)
     _ev_seq: int = 0
 
     def _target(self, projection: JSON) -> str:
@@ -48,7 +55,7 @@ class Loop:
 
     def iterate(self) -> Iteration:
         projection = self.graph.project_state(self.engagement_id)
-        state = build_state(projection, self.cfg.state_budget_chars)
+        state = build_state(self._with_priors(projection), self.cfg.state_budget_chars)
         decision = decide(self.decider, state, projection)
         target = self._target(projection)
         result = evaluate(target, decision, self.cfg, self.scope)
@@ -99,6 +106,8 @@ class Loop:
         ev = normalize(self.engagement_id, call.tool, target, raw, f"E-{self._ev_seq:03d}")
         if not self.graph.seen_sha256(self.engagement_id, ev.sha256):
             self.graph.insert_evidence(ev)
+        if action is not ActionClass.recon_passive:
+            self._ingest_caido(target)
         self._apply_verdicts(decision)
 
     def _apply_verdicts(self, decision: Decision) -> None:
@@ -120,3 +129,20 @@ class Loop:
             "scope_safe": decision.scope_safe.noul,
             "report_ready": decision.report_ready.noul,
         }
+
+    def _with_priors(self, projection: JSON) -> JSON:
+        if self.priors and isinstance(projection, dict):
+            return {**projection, "priors": self.priors}
+        return projection
+
+    def _ingest_caido(self, target: str) -> None:
+        """Pull Caido's passive-plugin findings for this engagement and fold
+        each into the evidence pipeline (E-###), deduped by sha256. Passive
+        substrate: findings are evidence, never decisions."""
+        for finding in self.proxy.findings(self.engagement_id):
+            src = finding.get("reporter", "finding") if isinstance(finding, dict) else "finding"
+            raw = json.dumps(finding, sort_keys=True)
+            self._ev_seq += 1
+            ev = normalize(self.engagement_id, f"caido/{src}", target, raw, f"E-{self._ev_seq:03d}")
+            if not self.graph.seen_sha256(self.engagement_id, ev.sha256):
+                self.graph.insert_evidence(ev)

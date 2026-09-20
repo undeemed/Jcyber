@@ -69,9 +69,9 @@ CLASS_TOOLS: dict[ActionClass, tuple[str, ...]] = {
 def route(action: ActionClass, target: str, cfg: Engagement, scope: Scope) -> ToolCall | None:
     """Map a gated action to a closed-set HexStrike tool call. report (local
     renderer) and commit (terminal) return None. Params are the P1 closed-set
-    baseline (target, Caido proxy, no_fuzzing_on); per-tool param specialization
-    and the MCP-name -> /api/tools/<endpoint> mapping are confirmed against
-    hexstrike_mcp.py at live wiring (P2)."""
+    baseline (target, Caido proxy, no_fuzzing_on); the MCP-name -> REST-slug
+    mapping is verified in HexStrikeHands._TOOL_ENDPOINT. Per-tool param
+    specialization lands at live wiring (P2)."""
     tools = CLASS_TOOLS.get(action)
     if not tools:
         return None

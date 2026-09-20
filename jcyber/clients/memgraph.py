@@ -50,6 +50,29 @@ class MemgraphStore:
             "validated_findings": list(rec["validated_findings"]),
         }
 
+    def report_data(self, engagement_id: str) -> JSON:
+        cypher = (
+            "MATCH (f:Finding {engagement_id: $eid, status: 'validated'}) "
+            "OPTIONAL MATCH (f)-[:SUPPORTED_BY]->(e:Evidence) "
+            "RETURN f.id AS id, f.title AS title, f.severity AS severity, "
+            "f.justification AS justification, "
+            "collect(DISTINCT {id: e.id, tool: e.tool, summary: e.summary}) AS evidence "
+            "ORDER BY f.id"
+        )
+        with self._driver.session() as s:
+            rows = list(s.run(cypher, eid=engagement_id))
+        findings: list[JSON] = [
+            {
+                "id": r["id"],
+                "title": r["title"],
+                "severity": r["severity"],
+                "justification": r["justification"],
+                "evidence": [ev for ev in r["evidence"] if ev.get("id") is not None],
+            }
+            for r in rows
+        ]
+        return {"engagement": engagement_id, "findings": findings}
+
     def write_decision(self, engagement_id: str, record: JSON) -> None:
         with self._driver.session() as s:
             s.run(

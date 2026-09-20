@@ -15,7 +15,7 @@ from jcyber.config import Engagement, scope_from_json
 from jcyber.loop import Loop
 from jcyber.types import Answer, ChoiceAns, NoulAns
 from tests.conftest import ENGAGEMENT_JSON, SCOPE_JSON
-from tests.fakes import FakeDecider, FakeHands, FakeMemory
+from tests.fakes import FakeDecider, FakeHands, FakeMemory, FakeProxy
 
 EID = "acme-lab-itest"
 
@@ -60,6 +60,7 @@ def test_loop_writes_decision_evidence_and_verdict_to_live_memgraph() -> None:
             graph=store,
             hands=FakeHands("PORT 80 open"),
             memory=FakeMemory(),
+            proxy=FakeProxy(),
         )
         it = loop.iterate()
         assert it.gate.outcome.value == "auto"

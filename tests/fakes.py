@@ -19,7 +19,7 @@ class FakeDecider:
 
 
 class FakeGraph:
-    def __init__(self, projection: JSON | None = None) -> None:
+    def __init__(self, projection: JSON | None = None, report: JSON | None = None) -> None:
         self.projection: JSON = (
             projection
             if projection is not None
@@ -29,9 +29,13 @@ class FakeGraph:
         self.evidence: list[Evidence] = []
         self.verdicts: list[tuple[str, str, float]] = []
         self._seen: set[str] = set()
+        self.report: JSON = report if report is not None else {"engagement": "", "findings": []}
 
     def project_state(self, engagement_id: str) -> JSON:
         return self.projection
+
+    def report_data(self, engagement_id: str) -> JSON:
+        return self.report
 
     def write_decision(self, engagement_id: str, record: JSON) -> None:
         self.decisions.append(record)
@@ -60,11 +64,20 @@ class FakeHands:
 
 
 class FakeMemory:
-    def __init__(self) -> None:
+    def __init__(self, priors: JSON | None = None) -> None:
         self.commits: list[tuple[str, JSON]] = []
+        self._priors: JSON = priors if priors is not None else {}
 
     def recall(self, engagement_id: str, scope: JSON) -> JSON:
-        return {}
+        return self._priors
 
     def commit(self, engagement_id: str, atoms: JSON) -> None:
         self.commits.append((engagement_id, atoms))
+
+
+class FakeProxy:
+    def __init__(self, findings: list[JSON] | None = None) -> None:
+        self._findings: list[JSON] = findings if findings is not None else []
+
+    def findings(self, engagement_id: str) -> list[JSON]:
+        return list(self._findings)
