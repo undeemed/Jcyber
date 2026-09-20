@@ -52,16 +52,38 @@ Five systems chained into the loop, plus Caido as the traffic substrate:
 
 ## Requirements
 
+The deterministic build (tests, docs gate) needs only the toolchain; the live
+loop needs the services and secrets below.
+
+### Toolchain
 - **Python 3.12+** and [`uv`](https://docs.astral.sh/uv/)
-- **Docker** - runs the Memgraph session brain (`deploy/docker-compose.memgraph.yml`)
-- **Node** - the intake command shells out to `npx @toon-format/cli` (all TOON
-  config is encoder output, never hand-written)
-- **Secrets** - put these in a local `.env` (already gitignored):
-  - `TYPESAFE_API_KEY` - **required** for the live loop (Jev is the only model in the control path)
-  - `JCYBER_MEMORY_URL` - long-term brain backend
-  - `CEREBRAS_API_KEY` - optional, only if the BYOK engine is enabled in `engagement.toon`
-- **Live path only** - a running HexStrike REST server on `127.0.0.1:8888` and
-  the Caido proxy on `127.0.0.1:8889`. Full bring-up: [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
+- **Docker** - runs the Memgraph session brain
+- **Node** - `intake` shells out to `npx @toon-format/cli` (TOON is always encoder output)
+
+### Services (live path)
+- **Memgraph** - `docker compose -f deploy/docker-compose.memgraph.yml up -d` (Bolt `:7687`, Lab `:3000`)
+- **HexStrike** - clone [0x4m4/hexstrike-ai](https://github.com/0x4m4/hexstrike-ai) and boot `hexstrike_server.py`. Boot deps (Python 3.12 venv): `flask psutil requests aiohttp beautifulsoup4 selenium mitmproxy` - it does **not** need `angr`/`pwntools` (those appear only inside exploit-template strings). **Port collision:** HexStrike defaults to `:8888`, the same port as Caido's API - run it elsewhere with `HEXSTRIKE_PORT=8899` and point `HEXSTRIKE_URL` at it.
+- **Security tools** HexStrike wraps - install the ones your `engagement.toon` routes: `nmap`, `httpx`, `nuclei`, `ffuf`, `subfinder`, `katana`.
+- **Caido** - `caido-cli --no-open --listen 127.0.0.1:8888` (GraphQL API + UI); the MITM proxy runs on `:8889` per project. Findings are pulled over the API.
+- **memory-core** - the standalone SQLite long-term brain: `uv run python deploy/memory_core.py 8130 ~/.jcyber/memory.db`.
+
+### Secrets (local `.env`, gitignored)
+- `TYPESAFE_API_KEY` - **required**; Jev is the only model in the control path.
+- `CAIDO_API_TOKEN` - a Caido **access token** for the instance API (only needed to ingest Caido findings). Caido auth is a PAT-driven OAuth device flow: create a Personal Access Token at [dashboard.caido.io](https://dashboard.caido.io/developer), exchange it for an access token (e.g. via [`@caido/sdk-client`](https://developer.caido.io/client-sdk/guides/base_setup.html)), and store that access token here.
+- `JCYBER_MEMORY_URL` - memory-core URL, e.g. `http://127.0.0.1:8130`.
+- `CEREBRAS_API_KEY` - optional; only if the BYOK engine is enabled in `engagement.toon`.
+
+### Ports
+| Service | Port | Notes |
+|---|---|---|
+| Memgraph Bolt | `7687` | session brain |
+| Memgraph Lab | `3000` | graph UI |
+| HexStrike REST | `8899` | default `8888` collides with Caido; move via `HEXSTRIKE_PORT` |
+| Caido API | `8888` | findings GraphQL + UI |
+| Caido proxy | `8889` | MITM traffic (per project) |
+| memory-core | `8130` | SQLite long-term brain |
+
+Full bring-up: [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 
 ## Quick start
 

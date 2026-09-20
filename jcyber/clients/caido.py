@@ -24,6 +24,10 @@ class CaidoProxy:
 
     @classmethod
     def connect(cls, base_url: str, token: str | None = None) -> CaidoProxy:
+        # token is a Caido *access token* for the instance API (Bearer). Caido
+        # auth is a PAT-driven OAuth device flow: exchange a Personal Access
+        # Token for an access token (e.g. via @caido/sdk-client) and pass it
+        # here -- the raw PAT is not accepted by the instance GraphQL directly.
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         return cls(httpx.Client(base_url=base_url, headers=headers, timeout=30.0))
 

@@ -30,13 +30,19 @@ operator defines in `scope.toon` is the source of truth it enforces.
    ```
    Then apply the schema with `$eid` set, per
    `schema/memgraph/engagement-graph.cypher`.
-2. **Hands.** Start the HexStrike server on `127.0.0.1:8888`
-   (`python3 hexstrike_server.py`). Only the closed-set tool endpoints in
-   `orchestrator/loop.md` section 3 are called; the `/api/intelligence/*` and
-   `ai_*`/`bugbounty_*` surface is never touched.
-3. **Proxy.** Start Caido on `127.0.0.1:8889` (one above HexStrike) with a
-   fresh project whose allow-scope is derived from `scope.toon`. Passive
-   plugins only.
+2. **Hands.** Start the HexStrike server (`python3 hexstrike_server.py`). It
+   defaults to `:8888`, which collides with Caido's API - run it elsewhere,
+   e.g. `HEXSTRIKE_PORT=8899 python3 hexstrike_server.py`, and set
+   `HEXSTRIKE_URL=http://127.0.0.1:8899`. Its boot deps are `flask psutil
+   requests aiohttp beautifulsoup4 selenium mitmproxy` (no angr/pwntools).
+   Only the closed-set tool endpoints in `orchestrator/loop.md` section 3 are
+   called; the `/api/intelligence/*` and `ai_*`/`bugbounty_*` surface is never
+   touched.
+3. **Proxy + findings.** Run Caido (`caido-cli --no-open --listen
+   127.0.0.1:8888` for the API/UI; the MITM proxy is `:8889` per project) with
+   a fresh project whose allow-scope is derived from `scope.toon`, passive
+   plugins only. To ingest findings, set `CAIDO_API_TOKEN` to a Caido access
+   token (PAT device-flow; see README Requirements).
 4. **Long-term brain.** Start the standalone SQLite memory-core (PLAN D1
    option b) and point `JCYBER_MEMORY_URL` at it:
 
