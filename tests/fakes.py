@@ -40,6 +40,9 @@ class FakeGraph:
     def write_decision(self, engagement_id: str, record: JSON) -> None:
         self.decisions.append(record)
 
+    def decision_log(self, engagement_id: str) -> list[JSON]:
+        return list(self.decisions)
+
     def insert_evidence(self, ev: Evidence) -> None:
         self.evidence.append(ev)
         self._seen.add(ev.sha256)

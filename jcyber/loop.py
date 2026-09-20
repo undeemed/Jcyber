@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from .config import Engagement
 from .decide import decide
@@ -121,6 +122,7 @@ class Loop:
 
     def _record(self, decision: Decision, result: GateResult, target: str) -> JSON:
         return {
+            "ts": datetime.now(UTC).isoformat(),
             "target": target,
             "action": result.action_class.value,
             "outcome": result.outcome.value,

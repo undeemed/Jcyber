@@ -74,12 +74,31 @@ class MemgraphStore:
         return {"engagement": engagement_id, "findings": findings}
 
     def write_decision(self, engagement_id: str, record: JSON) -> None:
+        ts = record.get("ts", "") if isinstance(record, dict) else ""
         with self._driver.session() as s:
             s.run(
-                "CREATE (:Decision {engagement_id: $eid, payload: $payload})",
+                "CREATE (:Decision {engagement_id: $eid, ts: $ts, payload: $payload})",
                 eid=engagement_id,
+                ts=ts,
                 payload=json.dumps(record),
             )
+
+    def decision_log(self, engagement_id: str) -> list[JSON]:
+        with self._driver.session() as s:
+            rows = list(
+                s.run(
+                    "MATCH (d:Decision {engagement_id: $eid}) "
+                    "RETURN d.payload AS payload ORDER BY d.ts",
+                    eid=engagement_id,
+                )
+            )
+        out: list[JSON] = []
+        for r in rows:
+            try:
+                out.append(json.loads(r["payload"]))
+            except (ValueError, TypeError):
+                continue
+        return out
 
     def insert_evidence(self, ev: Evidence) -> None:
         with self._driver.session() as s:

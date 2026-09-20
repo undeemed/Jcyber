@@ -34,11 +34,13 @@ from .config import load_engagement, load_scope
 from .intake import Intake, intake_link
 from .loop import Iteration, Loop
 from .report import render
+from .trace import render as render_trace
 
 USAGE = (
     "usage: python -m jcyber <engagement-dir>\n"
     "       python -m jcyber intake <link> [--sev SEVERITY]\n"
-    "       python -m jcyber report <engagement-dir>"
+    "       python -m jcyber report <engagement-dir>\n"
+    "       python -m jcyber trace <engagement-dir>"
 )
 
 
@@ -96,6 +98,18 @@ def run_report(home: Path) -> int:
     return 0
 
 
+def run_trace(home: Path) -> int:
+    codec = CliToonCodec()
+    scope = load_scope(home / "scope.toon", codec)
+    graph = MemgraphStore.connect(os.environ.get("MEMGRAPH_URI", "bolt://127.0.0.1:7687"))
+    try:
+        decisions = graph.decision_log(scope.engagement)
+    finally:
+        graph.close()
+    print(render_trace(scope.engagement, decisions), end="")
+    return 0
+
+
 def run_intake(args: list[str]) -> int:
     if not args or args[0] in {"-h", "--help"}:
         print("usage: python -m jcyber intake <link> [--sev SEVERITY]")
@@ -145,6 +159,11 @@ def main(argv: list[str]) -> int:
             print(USAGE)
             return 2
         return run_report(Path(argv[2]))
+    if argv[1] == "trace":
+        if len(argv) != 3:
+            print(USAGE)
+            return 2
+        return run_trace(Path(argv[2]))
     if len(argv) != 2:
         print(USAGE)
         return 2
