@@ -57,7 +57,7 @@ class MemgraphStore:
             "RETURN f.id AS id, f.title AS title, f.severity AS severity, "
             "f.justification AS justification, "
             "collect(DISTINCT {id: e.id, tool: e.tool, summary: e.summary}) AS evidence "
-            "ORDER BY f.id"
+            "ORDER BY id"
         )
         with self._driver.session() as s:
             rows = list(s.run(cypher, eid=engagement_id))
