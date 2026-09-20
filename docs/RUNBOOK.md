@@ -37,7 +37,16 @@ operator defines in `scope.toon` is the source of truth it enforces.
 3. **Proxy.** Start Caido on `127.0.0.1:8889` (one above HexStrike) with a
    fresh project whose allow-scope is derived from `scope.toon`. Passive
    plugins only.
-4. **Long-term brain.** Bring up the memory backend and set `JCYBER_MEMORY_URL`.
+4. **Long-term brain.** Start the standalone SQLite memory-core (PLAN D1
+   option b) and point `JCYBER_MEMORY_URL` at it:
+
+   ```
+   uv run python deploy/memory_core.py 8130 ~/.jcyber/memory.db
+   export JCYBER_MEMORY_URL=http://127.0.0.1:8130
+   ```
+
+   It speaks the same 2-method seam (`/recall`, `/commit`) as hosted
+   TencentDB, so the backend swaps without touching the loop.
 
 ## Intake
 

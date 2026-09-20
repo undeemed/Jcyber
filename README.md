@@ -153,7 +153,8 @@ Dockerized Memgraph smoke; a local pre-commit mirror exists
 - `jcyber/` - runtime: reflex core (loop, gates, scope, normalizer, state, router) + adapters in `jcyber/clients/` - no gate values in code
 - `tests/` - pytest: deterministic-gate safety, loop replay, live Memgraph integration
 - `scripts/check_docs.sh` - docs-invariants gate (TOON round-trip, threshold identity, mermaid sync, manifest, links)
-- `deploy/` - docker compose for the session brain (Memgraph + Lab)
+- `deploy/` - docker compose for the session brain (Memgraph + Lab) and the
+  standalone SQLite memory-core (`memory_core.py`, the long-term-brain seam)
 - `examples/idor-walkthrough.md` - one finding (AC-001) traced end-to-end
   through all five components
 - `.github/workflows/ci.yml` - CI: lint/type/test, docs gate, Memgraph smoke
