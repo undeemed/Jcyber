@@ -85,6 +85,13 @@ loop (`observe -> decide -> gate -> act -> store -> learn`) until the
 engagement is report-ready, `commit` is chosen, three consecutive gates make
 no progress, or the tool-run budget is spent.
 
+Inspect an engagement (during or after a run):
+
+```
+uv run python -m jcyber report <dir>   # Markdown report of validated findings + evidence
+uv run python -m jcyber trace <dir>    # per-iteration :Decision audit (action, outcome, confidences)
+```
+
 ## What is exercised only here
 
 The following seams are wired but verified live, under supervision — not in

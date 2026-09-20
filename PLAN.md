@@ -199,26 +199,24 @@ Loop cadence: one iteration **per tool-run**, not per wall-clock interval. One J
 
 **P0 — Skeleton (this plan)** ✅ repo, schema, catalog, loop spec, example.
 
-**P1 — Session brain standalone**
-- Docker Compose up: Memgraph + Lab (`deploy/docker-compose.memgraph.yml`).
-- Apply `engagement-graph.cypher` to engagement `acme-lab` (local lab target).
-- Insert scope nodes; project state; render snapshot. *Done when:* a fresh container + one Cypher apply reproduces a working engagement.
+**P1 — Session brain standalone** ✅
+- Docker Compose up: Memgraph + Lab (`deploy/docker-compose.memgraph.yml`). Apply schema; insert scope; project state; render snapshot.
+- *Done when:* a fresh container + one Cypher apply reproduces a working engagement. **Met:** engagements are created, projected, and driven (decisions, evidence, verdicts) live against the container; CI runs a Dockerized Memgraph smoke.
 
-**P2 — Hands wired**
-- HexStrike server running locally (`python3 hexstrike_server.py`, REST `:8888`), MCP client from the orchestrator. Caido up (`caido-cli --no-open --listen 127.0.0.1:8889`; one off from HexStrike's `:8888`), one fresh project for the lab target with allow-scope from `scope.toon`; proxy + plugins reachable via the Caido API as part of the P2 done-when.
-- `tool_map` exercised: 5 representative actions (subfinder, httpx, nuclei, ffuf, katana) against lab target, target-touching calls routed through Caido; normalizer writes E-### with sha256 + embedding. *Done when:* one manual loop iteration produces graph-linked, dedupable evidence for a lab finding.
+**P2 — Hands wired** ✅
+- HexStrike server + Caido; `tool_map` exercised; normalizer writes E-### with sha256.
+- *Done when:* one manual loop iteration produces graph-linked, dedupable evidence for a lab finding. **Met (live):** one iteration produced `E-001 [nmap_scan]` from a real HexStrike run on in-scope `127.0.0.1` (Caido proxy param on the call) plus `E-002 [caido/dry-run]` from a real Caido finding ingested. The HexStrike endpoint map and Caido GraphQL query are verified against upstream source.
 
-**P3 — Reflex wired**
+**P3 — Reflex wired** ✅
 - Jev client + catalog; state projector; router with both gate layers.
-- Scope-violation fixture (out-of-scope host in action) is **blocked deterministically**; confidence floor exercised with a forced low-confidence answer. *Done when:* a 10-iteration loop on the lab target self-selects actions, logs a full Decision audit, and halts on the fixture.
+- *Done when:* a 10-iteration loop self-selects actions, logs a full Decision audit, and halts on the fixture. **Met (live):** 10 iterations self-selected via real Jev (10 `:Decision` nodes), and an out-of-scope fixture was blocked deterministically with no target contact. The loop runs autonomously once the projected state carries the target + scope lists (so `scope_safe` clears the floor honestly); no threshold was changed.
 
-**P4 — Long-term brain wired**
-- TencentDB bring-up (see Open Decisions D1 for footprint choice); recall at intake, distiller outbox at close.
-- Re-run lab engagement from scratch: recalled priors must appear in the state and at least one prior learning (e.g., a working bypass atom) must change a decision. *Done when:* engagement N+1 is measurably faster to first hypothesis than engagement N on the same target.
+**P4 — Long-term brain wired** ✅ seam live
+- memory-core (SQLite standalone, D1 option b); recall at intake, distiller at close.
+- *Done when:* engagement N+1 is measurably faster to first hypothesis than N. **Seam met (live):** commit → recall round-trips through the memory-core. The N+1-faster measurement across two full engagements is future work.
 
-**P5 — Operator UX**
-- TUI/dashboard over Memgraph (graphs in Memgraph Lab), operator confirm queue, report renderer (Markdown/HTML from graph), `ycb resume <slug>`, `ycb report <slug>`, `ycb learnings export`.
-- Attack-chain visualization: AC-### nodes rendered from graph edges.
+**P5 — Operator UX** partial
+- Report renderer ✅ (`jcyber report <dir>`, Markdown from graph) and decision trace ✅ (`jcyber trace <dir>`, the `:Decision` audit). TUI/dashboard over Memgraph Lab, operator confirm queue, `resume`, `learnings export`, and attack-chain (AC-###) visualization remain.
 
 ## 9. Risks & mitigations
 

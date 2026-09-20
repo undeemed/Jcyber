@@ -76,3 +76,37 @@ Notes:
   §3, `config/decision-catalog.md` G1).
 - Thresholds shown are from the canonical set in
   `config/decision-catalog.md` (the one place per doc set they may live).
+
+## Service usage (per iteration)
+
+How each system is used in one loop iteration: Memgraph holds the state and the
+audit, Jev is the only decision-maker, HexStrike and Caido are the hands and the
+wire, TencentDB (memory-core) is the cross-engagement brain, and Prometheus is
+doctrine compiled into the schema (not a runtime).
+
+```mermaid
+flowchart TB
+  OP([Operator / driving agent]) -->|target + scope.toon| INTAKE[Intake: synthesize scope]
+  INTAKE --> REC
+
+  subgraph ITER[One loop iteration]
+    direction TB
+    REC[TencentDB memory-core<br/>RECALL priors + skills] --> OBS[Memgraph<br/>OBSERVE: project state]
+    OBS --> DEC[Jev / TypeSafe<br/>DECIDE: one atomic-question call]
+    DEC --> GATE{Router<br/>GATE: deterministic scope AND confidence}
+    GATE -->|out-of-scope or below floor| AUD[Memgraph :Decision<br/>blocked / parked, no contact]
+    GATE -->|auto| ACT[HexStrike<br/>ACT: run the closed-set tool]
+    ACT -->|target traffic| CD[Caido<br/>PROXY: log + passive plugins]
+    ACT --> NORM[Normalizer<br/>STORE: raw to E-### + sha256]
+    CD -->|plugin findings| NORM
+    NORM --> MG[Memgraph<br/>evidence, verdicts, :Decision audit]
+    MG -->|on close| LRN[TencentDB memory-core<br/>LEARN: commit atoms/skills]
+  end
+
+  LRN -.->|next engagement| REC
+  MG --> OUT[jcyber report / trace<br/>Markdown + decision audit]
+  OUT --> OP
+
+  classDef svc fill:#f4f4f4,stroke:#999
+  class REC,OBS,DEC,ACT,CD,NORM,MG,AUD,LRN,OUT svc
+```

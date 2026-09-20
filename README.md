@@ -41,6 +41,8 @@ passes scope + confidence gates before execution.**
 
 Five systems chained into the loop, plus Caido as the traffic substrate:
 
+See [how each service is used](docs/diagrams.md#service-usage-per-iteration) for the per-iteration flow.
+
 | Component | Source | Role |
 |---|---|---|
 | **HexStrike AI** | [0x4m4/hexstrike-ai](https://github.com/0x4m4/hexstrike-ai) | **Hands** - 150+ security tools behind an MCP server. Driven, not autonomous. |
@@ -135,8 +137,8 @@ For an explicit scope instead of a bare link, hand-author both `scope.toon` and
 | P1 session brain (Memgraph compose + smoke) | done - CI Memgraph smoke green; engagements created, projected, and driven (decisions, evidence, verdicts) live against the container |
 | P2 live hands (HexStrike + Caido) | done - live: one Loop iteration drove a real HexStrike `nmap` run on an in-scope localhost target into an `E-###`, with the Caido proxy param on the call; endpoint map + Caido GraphQL query verified against upstream source |
 | P3 reflex core (loop, gates, scope, normalizer, state, intake) | done - live: a 10-iteration loop self-selects via real Jev, writes 10 `:Decision` nodes, and halts on an out-of-scope fixture (deterministic block, no target contact) |
-| P4 long-term brain (TencentDB seam) | done - live round-trip through the standalone SQLite memory-core (commit at close, recall on the next run) |
-| P5 report renderer | done - `jcyber report <dir>` renders deterministic Markdown from the graph (each VF with linked evidence) |
+| P4 long-term brain (TencentDB seam) | seam done - live round-trip through the standalone SQLite memory-core (commit at close, recall on the next run); the PLAN §8 N+1-faster measurement is future work |
+| P5 operator UX | report + trace done - `jcyber report <dir>` (Markdown from the graph) and `jcyber trace <dir>` (per-iteration `:Decision` audit); TUI/dashboard over Memgraph Lab remains |
 
 The live path (real Memgraph/HexStrike/Jev/memory-core) was demonstrated this
 session on an in-scope localhost target; it is not run in CI (needs the Jev key
@@ -158,32 +160,43 @@ Dockerized Memgraph smoke; a local pre-commit mirror exists
 
 ## Layout
 
-- `docs/diagrams.md` - the architecture + decision-gate diagrams (Mermaid)
-- `docs/FAQ.md` - FAQ + how Jcyber compares to other pentest tools
-- `docs/RUNBOOK.md` - operator bring-up (Memgraph, HexStrike, Caido, memory backend) + intake + run
-- `PLAN.md` - the full chain plan: architecture, loop, phases, risks, open decisions
-- `AGENTS.md` / `CLAUDE.md` - agent conventions for working in this repo
-  (TOON-first config, threshold consistency, scope gate, decision atomicity,
-  no free-form command construction)
-- `schema/storage-layout.md` - on-disk engagement layout
-  (canonical `scope.toon` / `engagement.toon` encodings)
-- `schema/memgraph/engagement-graph.cypher` - engagement graph schema,
-  indexes, invariants, state projector shape
-- `schema/tencentdb/memory-interface.md` - the 2-method seam (recall /
-  commit) with the long-term brain
-- `config/decision-catalog.md` - the Jev question catalog (the heart of the
-  chain) with confidence gates
-- `orchestrator/loop.md` - the control loop, pseudocode +
-  `next_action` → HexStrike tool routing
-- `jcyber/` - runtime: reflex core (loop, gates, scope, normalizer, state, router) + adapters in `jcyber/clients/` - no gate values in code
-- `tests/` - pytest: deterministic-gate safety, loop replay, live Memgraph integration
-- `scripts/check_docs.sh` - docs-invariants gate (TOON round-trip, threshold identity, mermaid sync, manifest, links)
-- `deploy/` - docker compose for the session brain (Memgraph + Lab) and the
-  standalone SQLite memory-core (`memory_core.py`, the long-term-brain seam)
-- `examples/idor-walkthrough.md` - one finding (AC-001) traced end-to-end
-  through all five components
-- `.github/workflows/ci.yml` - CI: lint/type/test, docs gate, Memgraph smoke
-- `pyproject.toml` - package config (uv, ruff, pyright, pytest)
+~~~text
+jcyber/                          reflex core - no gate values in code
+├─ loop.py  gate.py  scope.py       observe->decide->gate loop + deterministic scope match
+├─ decide.py  state.py  router.py   Jev question assembly, state projector, tool routing
+├─ normalize.py  learn.py           raw -> E-### evidence; distiller (atoms/skills)
+├─ report.py  trace.py              Markdown report + decision-audit trace renderers
+├─ config.py  types.py  ports.py    engagement/scope loaders, typed model, port protocols
+├─ intake.py  __main__.py           bare-link scope synthesis; CLI (run/intake/report/trace)
+└─ clients/                         one adapter per external system
+   ├─ hexstrike.py  caido.py        hands (tool REST) + proxy (findings GraphQL)
+   ├─ jev.py  engine.py             decision model (Jev) + BYOK engine (Cerebras)
+   └─ memgraph.py  tencentdb.py  toon.py   session graph, long-term-brain seam, TOON codec
+tests/                           pytest: gate safety, loop replay, live Memgraph integration
+config/decision-catalog.md       the Jev question catalog (the heart of the chain) + gates
+orchestrator/loop.md             loop pseudocode + next_action -> HexStrike tool routing
+schema/
+├─ storage-layout.md             on-disk engagement layout (canonical scope/engagement TOON)
+├─ memgraph/engagement-graph.cypher   graph schema, indexes, invariants, state projector
+└─ tencentdb/memory-interface.md      the 2-method long-term-brain seam (recall / commit)
+deploy/
+├─ docker-compose.memgraph.yml   session brain (Memgraph + Lab)
+└─ memory_core.py                standalone SQLite long-term brain
+docs/
+├─ diagrams.md                   architecture, decision-gate + service-usage diagrams (Mermaid)
+├─ RUNBOOK.md                    operator bring-up + intake + run + report/trace
+└─ FAQ.md                        FAQ + how Jcyber compares to other pentest tools
+scripts/check_docs.sh            docs-invariants gate (TOON, thresholds, mermaid, manifest, links)
+examples/idor-walkthrough.md     one finding (AC-001) traced end-to-end through all five systems
+PLAN.md                          the full chain plan: architecture, loop, phases, risks
+AGENTS.md / CLAUDE.md            agent conventions for working in this repo (mirrored)
+.github/workflows/ci.yml         CI: lint/type/test, docs gate, Memgraph smoke
+pyproject.toml                   package config (uv, ruff, pyright, pytest)
+~~~
+
+## Contributing
+
+Read [`CONTRIBUTING.md`](CONTRIBUTING.md): run the four gates before pushing, and write [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/). Invariants live in [`AGENTS.md`](AGENTS.md).
 
 ## Legality
 
