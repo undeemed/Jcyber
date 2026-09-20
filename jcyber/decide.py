@@ -31,13 +31,21 @@ def _open_hypotheses(projection: JSON) -> list[str]:
     return [h for h in hs if isinstance(h, str)]
 
 
-def assemble_questions(projection: JSON) -> dict[str, Question]:
+def assemble_questions(projection: JSON, target: str = "") -> dict[str, Question]:
+    if target:
+        scope_q = NoulQ(
+            f"The next action targets {target}. Given the in_scope and "
+            "out_of_scope lists in the state, how likely is this action "
+            "unambiguously within authorized scope?"
+        )
+    else:
+        scope_q = NoulQ("How likely is this proposed action unambiguously within scope?")
     q: dict[str, Question] = {
         "next_action": ChoiceQ(
             "Which single next action best advances the engagement given the state?",
             dict(ACTION_OPTIONS),
         ),
-        "scope_safe": NoulQ("How likely is this proposed action unambiguously within scope?"),
+        "scope_safe": scope_q,
         "report_ready": NoulQ("Is the engagement in a state to produce a defensible report now?"),
     }
     for hid in _open_hypotheses(projection):
@@ -73,5 +81,5 @@ def interpret(answers: Mapping[str, Answer]) -> Decision:
     )
 
 
-def decide(decider: Decider, state: str, projection: JSON) -> Decision:
-    return interpret(decider.system_one(state, assemble_questions(projection)))
+def decide(decider: Decider, state: str, projection: JSON, target: str = "") -> Decision:
+    return interpret(decider.system_one(state, assemble_questions(projection, target)))

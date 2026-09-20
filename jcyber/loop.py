@@ -55,9 +55,9 @@ class Loop:
 
     def iterate(self) -> Iteration:
         projection = self.graph.project_state(self.engagement_id)
-        state = build_state(self._with_priors(projection), self.cfg.state_budget_chars)
-        decision = decide(self.decider, state, projection)
         target = self._target(projection)
+        state = build_state(self._context(projection, target), self.cfg.state_budget_chars)
+        decision = decide(self.decider, state, projection, target)
         result = evaluate(target, decision, self.cfg, self.scope)
         self.graph.write_decision(self.engagement_id, self._record(decision, result, target))
         if result.outcome is Outcome.auto:
@@ -130,10 +130,19 @@ class Loop:
             "report_ready": decision.report_ready.noul,
         }
 
-    def _with_priors(self, projection: JSON) -> JSON:
-        if self.priors and isinstance(projection, dict):
-            return {**projection, "priors": self.priors}
-        return projection
+    def _context(self, projection: JSON, target: str) -> JSON:
+        """The text state Jev sees: the resolved target and the scope lists (so
+        scope_safe is grounded), plus the projection and any recalled priors."""
+        ctx: dict[str, JSON] = {
+            "target": target,
+            "in_scope": [f"{i.kind}:{i.value}" for i in self.scope.in_scope],
+            "out_of_scope": [f"{i.kind}:{i.value}" for i in self.scope.out_of_scope],
+        }
+        if isinstance(projection, dict):
+            ctx.update(projection)
+        if self.priors:
+            ctx["priors"] = self.priors
+        return ctx
 
     def _ingest_caido(self, target: str) -> None:
         """Pull Caido's passive-plugin findings for this engagement and fold

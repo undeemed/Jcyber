@@ -147,4 +147,6 @@ def test_priors_threaded_into_jev_state(cfg: Engagement, scope: Scope) -> None:
         priors={"atoms": ["acme WAF strips X-Forwarded-For"]},
     )
     loop.iterate()
-    assert "X-Forwarded-For" in decider.calls[0][0]
+    state_seen = decider.calls[0][0]
+    assert "X-Forwarded-For" in state_seen  # recalled priors
+    assert '"in_scope"' in state_seen and "acme-lab.example" in state_seen  # scope grounding

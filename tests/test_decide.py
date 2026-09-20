@@ -22,6 +22,13 @@ def test_assemble_without_open_hypotheses() -> None:
     assert set(q) == {"next_action", "scope_safe", "report_ready"}
 
 
+def test_scope_safe_question_names_target_when_given() -> None:
+    q = assemble_questions({"open_hypotheses": []}, target="acme-lab.example")
+    sq = q["scope_safe"]
+    assert isinstance(sq, NoulQ)
+    assert "acme-lab.example" in sq.instructions
+
+
 def test_interpret_projects_typed_answers() -> None:
     answers: dict[str, Answer] = {
         "next_action": ChoiceAns(
