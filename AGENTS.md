@@ -55,6 +55,26 @@ it support or contradict?
 - `httpx_probe` shows nginx 1.19 -> `nuclei_scan` with nginx templates
 - `nuclei_scan` flags a path traversal -> `http_repeater` confirms it
 - `http_repeater` confirms -> `create_hypothesis` -> `promote_finding`
+- `nmap_scan` finds port 3306 -> `netexec_scan` enumerates -> `sqlmap_scan` exploits
+- `browser_agent_inspect` extracts JS -> find API keys, internal endpoints, hardcoded secrets
+- `jwt_analyzer` decodes token -> forge claims -> `http_repeater` replays with tampered JWT
+
+**Reverse engineer what you find.** When you get a binary, APK, JS bundle,
+or compiled asset from the target, pull it apart: strings-dump it, trace API
+calls, extract hardcoded endpoints and keys, find version strings. Feed
+those back into your scanning tools. An internal API URL found in minified
+JS is a new target for `nuclei_scan` and `sqlmap_scan`. A leaked key in a
+mobile binary is a finding and an access vector.
+**Hunt zero-days from known CVEs.** Look up published CVEs for the versions
+you fingerprint. Don't just run `nuclei_scan` templates — read the CVE
+details, understand the root cause, and look for the same bug class in
+unpatched code paths. A past CVE in a framework tells you what the
+developers get wrong — check if they made the same mistake elsewhere.
+Chain a known CVE with target-specific config to find exploitable paths
+the templates miss. Combine findings: a low-severity info disclosure that
+leaks an internal path + a path traversal = file read = potential zero-day
+chain no scanner would catch. The goal is not to re-find known CVEs — it's
+to use them as a map to find what nobody has reported yet.
 
 **Go deep, not wide.** Don't run every tool on every target. Pick the tool
 that answers your current question. If nmap shows port 3306 open, that's

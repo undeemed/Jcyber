@@ -34,7 +34,19 @@ subfinder -> httpx (which are alive?) -> nuclei (known CVEs?)
 nmap (open ports) -> nikto (misconfigs) -> http_repeater (confirm)
 katana (crawl endpoints) -> sqlmap (test params) -> create_hypothesis
 nuclei (flags vuln) -> http_repeater (reproduce) -> promote_finding
+nmap finds 3306 -> netexec_scan enumerates -> sqlmap_scan exploits
+browser_agent_inspect extracts JS -> find API keys, internal endpoints
+jwt_analyzer decodes token -> forge claims -> http_repeater replays
 ```
+
+**Reverse engineer** binaries, JS bundles, APKs you find. Extract hardcoded
+endpoints, keys, version strings. Feed them back as scan targets.
+
+**Hunt zero-days from known CVEs.** Look up CVEs for the versions you
+fingerprint. Study the root cause. Look for the same bug class in unpatched
+code paths. Chain a known CVE with target-specific config to find what no
+scanner would catch. Past CVEs are a map to what the developers get wrong —
+find where they made the same mistake again.
 
 Use `get_state` between chains to check what evidence you have, what
 hypotheses are open, and what tools you've already run.
