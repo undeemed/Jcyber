@@ -4,7 +4,7 @@
 An MCP toolkit for agent-driven pentesting. The agent harness (Claude Code,
 or any MCP-capable LLM) is the reasoning loop. Jcyber provides scope-gated
 scanning tools, an evidence graph, a finding lifecycle, and long-term memory
-through an MCP server with 52 tools.
+through an MCP server with 54 tools.
 
 **How does the agent drive a pentest?**
 The agent connects to Jcyber's MCP server and calls tools: scanning tools to
@@ -38,13 +38,15 @@ HexStrike's REST default `:8888`, so the pair stays adjacent and
 collision-free.
 
 **Is anything runnable today?**
-Yes. The MCP server with 52 tools, scope gate, evidence graph, and finding
+Yes. The MCP server with 54 tools, scope gate, evidence graph, and finding
 lifecycle. `python -m jcyber serve` starts it. Connect any MCP-capable agent.
 
 **What backends are required?**
 - HexStrike server on `:8888` (the scanning tools)
 - Memgraph on `:7687` (the engagement graph)
-- Optionally: Caido on `:8889`, TencentDB memory-core
+- Caido on `:8889` (proxy) and `:8080` (API)
+- `TYPESAFE_API_KEY` and `CAIDO_API_TOKEN` in `.env`
+- Optionally: TencentDB memory-core (`JCYBER_MEMORY_URL`)
 
 ## Comparison to other pentest tools
 

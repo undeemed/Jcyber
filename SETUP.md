@@ -110,7 +110,7 @@ you're good.
 | HexStrike | 8888 | Security tools REST API |
 | Memgraph | 7687 | Engagement graph (Bolt) |
 | Memgraph Lab | 3000 | Graph web UI |
-| Caido (optional) | 8889 | HTTP proxy |
+| Caido | 8889 / 8080 | HTTP proxy (8889) and instance API (8080) |
 
 ## Troubleshooting
 

@@ -7,3 +7,5 @@ node_modules/
 # operator-local secrets (e.g. BYOK engine key) - never committed
 .env
 .env.local
+# session exports (may contain pentest findings for live targets)
+omp-session-*.html

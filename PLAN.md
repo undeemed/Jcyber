@@ -108,6 +108,11 @@ pre-hook before every call.
 - `recall_lessons` - TencentDB recall
 - `commit_learnings` - distill and commit to long-term memory
 
+### Jev classifiers (2, optional accelerators)
+
+- `suggest_severity` - fast severity classification for a finding
+- `check_duplicate` - check if new evidence duplicates existing
+
 ## 5. Safety
 
 - **Scope gate:** deterministic string matching against `scope.toon`, enforced
@@ -141,7 +146,7 @@ IDs are sequential per engagement (H-001, E-001, F-001), never reused.
 | P0 - Skeleton (plan, schema, examples) | Done |
 | P1 - Session brain (Memgraph) | Done |
 | P2 - Hands wired (HexStrike + Caido) | Done |
-| P3 - MCP server (52 tools, scope gate, CLI) | Done |
+| P3 - MCP server (54 tools, scope gate, CLI) | Done |
 | P4 - Live verification (DVWA end-to-end) | Next |
 | P5 - Operator UX (TUI, attack-chain viz) | Planned |
 

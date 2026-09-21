@@ -39,19 +39,21 @@ evidence is normalized into the engagement graph.
 | TencentDB | Long-term memory - cross-engagement recall and learning |
 | Caido | Traffic substrate - proxy, request logging, passive plugins |
 
-## MCP tools (52 total)
+## MCP tools (54 total)
 
 - **42 HexStrike scanning tools** - `nmap_scan`, `nuclei_scan`, `sqlmap_scan`, `ffuf_scan`, `httpx_probe`, etc. Each scope-gated.
-- **Graph tools** - `create_hypothesis`, `promote_finding`, `score_finding`, `retire_hypothesis`
-- **Engagement tools** - `intake_target`, `get_state`, `render_findings_report`, `get_decision_trace`
-- **Memory tools** - `recall_lessons`, `commit_learnings`
+- **Graph tools (4)** - `create_hypothesis`, `promote_finding`, `score_finding`, `retire_hypothesis`
+- **Engagement tools (4)** - `intake_target`, `get_state`, `render_findings_report`, `get_decision_trace`
+- **Memory tools (2)** - `recall_lessons`, `commit_learnings`
+- **Jev classifiers (2)** - `suggest_severity`, `check_duplicate`
 
 ## Requirements
 
 - **Python 3.12+** and [`uv`](https://docs.astral.sh/uv/)
 - **Docker** (for Memgraph)
 - **HexStrike server** running on `:8888`
-- Optionally: **Caido** on `:8889`, **TencentDB memory-core**
+- **Caido** proxy on `:8889` (API on `:8080`)
+- **Secrets in `.env`:** `TYPESAFE_API_KEY`, `CAIDO_API_TOKEN` (auto-loaded by `python-dotenv`)
 
 ### Ports
 
@@ -111,6 +113,13 @@ MCP tool calls.
 | `HEXSTRIKE_URL` | `http://127.0.0.1:8888` | HexStrike REST endpoint |
 | `MEMGRAPH_URI` | `bolt://127.0.0.1:7687` | Memgraph Bolt endpoint |
 | `JCYBER_MEMORY_URL` | (none) | TencentDB memory-core endpoint |
+| `CAIDO_PROXY` | `127.0.0.1:8889` | Caido proxy listener (TCP health-checked) |
+| `CAIDO_API_URL` | `http://127.0.0.1:8080` | Caido instance GraphQL API |
+| `CAIDO_API_TOKEN` | (none) | Caido access token (in `.env`) |
+| `TYPESAFE_API_KEY` | (none) | TypeSafe API key for Jev classifiers (in `.env`) |
+| `JCYBER_NONINTERACTIVE` | (unset) | Set `1` to abort on missing services (no prompt) |
+
+Secrets live in `.env` (auto-loaded by `python-dotenv` at startup).
 
 ## Safety
 
@@ -133,7 +142,7 @@ python -m jcyber trace <dir>        # render decision trace
 
 ```
 jcyber/
-  mcp_server.py        MCP server with all 52 tools
+  mcp_server.py        MCP server with all 54 tools
   SKILL.md             Agent methodology (the pentesting ladder)
   scope.py             Deterministic scope gate
   normalize.py         Evidence normalization (sha256, summary)

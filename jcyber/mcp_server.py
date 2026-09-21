@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
 
 from mcp.server.mcpserver import MCPServer
 
+from .clients.caido import CaidoProxy
 from .clients.hexstrike import HexStrikeHands
 from .clients.memgraph import MemgraphStore
 from .clients.tencentdb import TencentMemory
@@ -120,6 +122,7 @@ class ServerState:
         self.hands: HexStrikeHands | None = None
         self.graph: MemgraphStore | None = None
         self.memory: TencentMemory | None = None
+        self.caido: CaidoProxy | None = None
         self.cfg: Engagement | None = None
         self.scope: Scope | None = None
         self.engagement_id: str = ""
@@ -580,32 +583,136 @@ def check_duplicate(new_evidence_summary: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _tcp_probe(host: str, port: int, timeout: float = 3.0) -> None:
+    """Open-and-close TCP connection. Raises on refusal or timeout."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        sock.connect((host, port))
+    finally:
+        sock.close()
+
+
+def _parse_host_port(addr: str, default_port: int = 8889) -> tuple[str, int]:
+    """Parse 'host:port' or plain 'host'. Returns (host, port)."""
+    if ":" in addr:
+        host, port_s = addr.rsplit(":", 1)
+        return host, int(port_s)
+    return addr, default_port
+
+
+def _prompt_continue(errors: list[str]) -> None:
+    """Print missing-service errors and prompt operator to continue or abort.
+
+    MCP uses stdin/stdout so we read from /dev/tty (the controlling terminal).
+    Set JCYBER_NONINTERACTIVE=1 to skip the prompt and abort (safe default
+    for harness / CI runs where no human watches the server's tty).
+    """
+    print("\n[jcyber] BLOCKED - required services not ready:", file=sys.stderr)
+    for err in errors:
+        print(f"  x {err}", file=sys.stderr)
+    print(file=sys.stderr)
+
+    # Non-interactive mode: no prompt, abort immediately
+    if os.environ.get("JCYBER_NONINTERACTIVE"):
+        print(
+            "  JCYBER_NONINTERACTIVE is set. Aborting.\n"
+            "  Unset it or fix services above to proceed.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    try:
+        tty = open("/dev/tty")  # noqa: SIM115
+    except OSError:
+        print("  No terminal available to prompt. Aborting.", file=sys.stderr)
+        raise SystemExit(1) from None
+
+    try:
+        print(
+            "  Continue anyway? Evidence/scanning may be degraded. [y/N] ",
+            end="",
+            file=sys.stderr,
+            flush=True,
+        )
+        answer = tty.readline().strip().lower()
+    finally:
+        tty.close()
+
+    if answer not in ("y", "yes"):
+        print("  Aborting. Fix the services above and retry.", file=sys.stderr)
+        raise SystemExit(1)
+    print("  Continuing with degraded services.\n", file=sys.stderr)
+
+
 def connect_backends() -> None:
-    """Connect to backends from environment variables. Called at server start."""
+    """Connect to all backends. Every service is checked; failures are
+    collected and the operator is prompted before the server proceeds.
+
+    Expects .env to be loaded BEFORE this is called (run_server handles it).
+    """
     hexstrike_url = os.environ.get("HEXSTRIKE_URL", "http://127.0.0.1:8888")
     memgraph_uri = os.environ.get("MEMGRAPH_URI", "bolt://127.0.0.1:7687")
     memory_url = os.environ.get("JCYBER_MEMORY_URL")
+    caido_proxy = os.environ.get("CAIDO_PROXY", "127.0.0.1:8889")
+    caido_api_url = os.environ.get("CAIDO_API_URL", "http://127.0.0.1:8080")
+    caido_token = os.environ.get("CAIDO_API_TOKEN")
 
+    errors: list[str] = []
+
+    # -- HexStrike (scanning) ----------------------------------------------
     try:
         _state.hands = HexStrikeHands.connect(hexstrike_url)
-        print(f"[jcyber] HexStrike connected @ {hexstrike_url}", file=sys.stderr)
+        _state.hands.ping()  # GET /health - actual network probe
+        print(f"[jcyber] ok HexStrike @ {hexstrike_url}", file=sys.stderr)
     except Exception as e:
-        print(f"[jcyber] HexStrike unavailable @ {hexstrike_url}: {e}", file=sys.stderr)
+        _state.hands = None
+        errors.append(f"HexStrike @ {hexstrike_url}: {e}")
 
+    # -- Memgraph (evidence graph) -----------------------------------------
     try:
         _state.graph = MemgraphStore.connect(memgraph_uri)
         _state.graph.ping()
-        print(f"[jcyber] Memgraph connected @ {memgraph_uri}", file=sys.stderr)
+        print(f"[jcyber] ok Memgraph @ {memgraph_uri}", file=sys.stderr)
     except Exception as e:
-        print(f"[jcyber] Memgraph unavailable @ {memgraph_uri}: {e}", file=sys.stderr)
         _state.graph = None
+        errors.append(f"Memgraph @ {memgraph_uri}: {e}")
 
+    # -- Caido proxy (TCP probe on proxy listener port) --------------------
+    try:
+        host, port = _parse_host_port(caido_proxy)
+        _tcp_probe(host, port)
+        print(f"[jcyber] ok Caido proxy @ {caido_proxy}", file=sys.stderr)
+    except Exception as e:
+        errors.append(f"Caido proxy @ {caido_proxy}: {e}")
+
+    # -- Caido API (GraphQL - for findings pull) ---------------------------
+    try:
+        _state.caido = CaidoProxy.connect(caido_api_url, token=caido_token)
+        _state.caido.ping()  # POST /graphql {__typename}
+        print(f"[jcyber] ok Caido API @ {caido_api_url}", file=sys.stderr)
+    except Exception as e:
+        _state.caido = None
+        errors.append(f"Caido API @ {caido_api_url}: {e}")
+
+    # -- TencentDB memory --------------------------------------------------
     if memory_url:
         try:
             _state.memory = TencentMemory.connect(memory_url)
-            print(f"[jcyber] Memory connected @ {memory_url}", file=sys.stderr)
+            print(f"[jcyber] ok Memory @ {memory_url}", file=sys.stderr)
         except Exception as e:
-            print(f"[jcyber] Memory unavailable @ {memory_url}: {e}", file=sys.stderr)
+            errors.append(f"Memory @ {memory_url}: {e}")
+    else:
+        errors.append("JCYBER_MEMORY_URL not set")
+
+    # -- TYPESAFE_API_KEY (Jev classifier) ----------------------------------
+    if os.environ.get("TYPESAFE_API_KEY"):
+        print("[jcyber] ok TYPESAFE_API_KEY present", file=sys.stderr)
+    else:
+        errors.append("TYPESAFE_API_KEY not set")
+
+    if errors:
+        _prompt_continue(errors)
 
 
 def disconnect_backends() -> None:
@@ -613,12 +720,17 @@ def disconnect_backends() -> None:
         _state.hands.close()
     if _state.graph is not None:
         _state.graph.close()
+    if _state.caido is not None:
+        _state.caido.close()
     if _state.memory is not None:
         _state.memory.close()
 
 
 def run_server() -> None:
     """Start the MCP server (stdio transport)."""
+    from dotenv import load_dotenv
+
+    load_dotenv()  # .env secrets into os.environ BEFORE backend checks
     connect_backends()
     try:
         mcp.run(transport="stdio")

@@ -8,7 +8,7 @@ pre-hook on every MCP tool call.
 
 - Docker, `uv`, Python 3.12+.
 - HexStrike server (clone and run, default `:8888`).
-- Optionally: Caido on `:8889`, TencentDB memory-core.
+- Caido on `:8889` (proxy) and `:8080` (API). Secrets in `.env`.
 
 ## Bring-up
 
@@ -28,7 +28,7 @@ cd /path/to/hexstrike && python hexstrike_server.py
 
 Default: `http://127.0.0.1:8888`.
 
-3. **Caido (optional).** Start Caido with the proxy pinned:
+3. **Caido.** Start Caido with the proxy pinned:
 
 ```
 caido-cli --listen 127.0.0.1:8889
@@ -92,6 +92,13 @@ through MCP tool calls.
 | `MEMGRAPH_URI` | `bolt://127.0.0.1:7687` | Memgraph Bolt endpoint |
 | `JCYBER_MEMORY_URL` | (none) | TencentDB memory-core endpoint |
 | `JCYBER_ENGAGEMENTS` | `./engagements` | Base dir for engagement data |
+| `CAIDO_PROXY` | `127.0.0.1:8889` | Caido proxy listener (TCP health-checked) |
+| `CAIDO_API_URL` | `http://127.0.0.1:8080` | Caido instance GraphQL API |
+| `CAIDO_API_TOKEN` | (none) | Caido access token (Bearer) for instance API |
+| `TYPESAFE_API_KEY` | (none) | TypeSafe API key for Jev classifiers |
+| `JCYBER_NONINTERACTIVE` | (unset) | Set to `1` to abort on missing services instead of prompting |
+
+All secrets can live in `.env` (auto-loaded by `python-dotenv` at startup).
 
 ## Ports
 

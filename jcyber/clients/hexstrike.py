@@ -98,6 +98,10 @@ class HexStrikeHands:
     def close(self) -> None:
         self._client.close()
 
+    def ping(self) -> None:
+        """Hit GET /health — raises on connection failure or non-2xx."""
+        self._client.get("/health").raise_for_status()
+
     def call(self, tool: str, params: Mapping[str, JSON]) -> str:
         slug = _TOOL_ENDPOINT.get(tool, tool)
         try:

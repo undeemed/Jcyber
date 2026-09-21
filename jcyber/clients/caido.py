@@ -34,6 +34,14 @@ class CaidoProxy:
     def close(self) -> None:
         self._client.close()
 
+    def ping(self) -> None:
+        """Lightweight GraphQL probe — verifies the API is reachable."""
+        resp = self._client.post(
+            "/graphql",
+            json={"query": "{ __typename }"},
+        )
+        resp.raise_for_status()
+
     def findings(self, engagement_id: str, limit: int = 100) -> list[JSON]:
         # Caido scopes findings to the connected project (one project per
         # engagement, bound at connect), so engagement_id is not a query arg.
