@@ -517,44 +517,6 @@ def _get_jev() -> JevClassifier:
 
 
 @mcp.tool()
-def triage_evidence(evidence_id: str) -> str:
-    """Fast classification: does this evidence indicate a vulnerability?
-
-    Returns a probability (0-1). High probability = worth investigating.
-    This is a Jev gut-check, not a definitive answer. Optional accelerator —
-    the agent can always read the evidence and decide itself.
-
-    evidence_id: the E-### id to triage
-    """
-    graph = _require_graph()
-    jev = _get_jev()
-    state = graph.project_state(_state.engagement_id)
-    # Find the evidence record
-    summary = ""
-    tool_name = ""
-    target = ""
-    if isinstance(state, dict):
-        recent = state.get("recent_evidence")
-        if isinstance(recent, list):
-            for ev in recent:
-                if isinstance(ev, dict) and ev.get("id") == evidence_id:
-                    summary = str(ev.get("summary", ""))
-                    tool_name = str(ev.get("tool", ""))
-                    target = str(ev.get("target", ""))
-                    break
-    if not summary:
-        return json.dumps({"error": f"evidence {evidence_id} not found in recent state"})
-    result = jev.triage(tool_name, target, summary)
-    return json.dumps(
-        {
-            "evidence_id": evidence_id,
-            "vuln_probability": round(result.vuln_probability, 3),
-            "interesting": result.vuln_probability >= 0.6,
-        }
-    )
-
-
-@mcp.tool()
 def suggest_severity(finding_id: str, title: str, evidence_summary: str) -> str:
     """Fast severity classification for a finding. Returns a suggested
     severity level (none/low/medium/high/critical) with confidence.
@@ -609,31 +571,6 @@ def check_duplicate(new_evidence_summary: str) -> str:
             "duplicate_probability": round(result.duplicate_probability, 3),
             "is_duplicate": result.duplicate_probability >= 0.7,
             "compared_against": len(existing),
-        }
-    )
-
-
-@mcp.tool()
-def suggest_next_tool() -> str:
-    """Suggest which tool category to run next, given the engagement state.
-
-    Returns a ranked hint — the agent can take it or ignore it. This is an
-    optional accelerator, never a gate or control-path decision. The agent
-    always decides what to actually run.
-
-    Categories: recon_passive, recon_active, probing, fuzzing, verify.
-    """
-    graph = _require_graph()
-    jev = _get_jev()
-    state = graph.project_state(_state.engagement_id)
-    state_text = json.dumps(state, indent=2)[:8000]
-    result = jev.suggest_tool_category(state_text)
-    return json.dumps(
-        {
-            "suggested_category": result.category,
-            "confidence": round(result.confidence, 3),
-            "probabilities": {k: round(v, 3) for k, v in result.probabilities.items()},
-            "note": "This is a hint. The agent decides what to run.",
         }
     )
 
