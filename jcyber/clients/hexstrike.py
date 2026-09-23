@@ -1,5 +1,5 @@
 """HexStrike hands adapter. Drives HexStrike's REST server (default
-http://127.0.0.1:8888, verified against hexstrike_mcp.py on master): each tool
+http://127.0.0.1:8899, verified against hexstrike_mcp.py on master): each tool
 is a POST to /api/tools/<endpoint>, health at /health. Never touches the
 /api/intelligence/* or ai_*/bugbounty_* surface (AGENTS.md invariant #7). The
 MCP-tool-name -> endpoint-slug mapping (e.g. nmap_scan -> nmap, http_repeater
@@ -68,6 +68,35 @@ _TOOL_ENDPOINT: dict[str, str] = {
     "responder_credential_harvest": "responder",
 }
 
+# HexStrike endpoints use different primary-param names. jcyber always sends
+# "target"; this table remaps it to the name each endpoint actually reads.
+# Tools not listed here accept "target" natively.
+_TARGET_PARAM: dict[str, str] = {
+    # domain-based
+    "subfinder_scan": "domain",
+    "amass_scan": "domain",
+    "gau_discovery": "domain",
+    "waybackurls_discovery": "domain",
+    "paramspider_discovery": "domain",
+    # url-based
+    "gobuster_scan": "url",
+    "dirb_scan": "url",
+    "sqlmap_scan": "url",
+    "wpscan_analyze": "url",
+    "ffuf_scan": "url",
+    "feroxbuster_scan": "url",
+    "xsser_scan": "url",
+    "wfuzz_scan": "url",
+    "katana_crawl": "url",
+    "arjun_scan": "url",
+    "jaeles_vulnerability_scan": "url",
+    "dalfox_xss_scan": "url",
+}
+
+# httpx endpoint builds `httpx -l {target}` treating target as a file path.
+# Workaround: pipe target via additional_args with -u flag instead.
+_HTTPX_TOOL = "httpx_probe"
+
 
 def _extract(text: str) -> str:
     """HexStrike wraps tool output in a JSON envelope ({stdout, stderr,
@@ -91,7 +120,7 @@ class HexStrikeHands:
 
     @classmethod
     def connect(
-        cls, base_url: str = "http://127.0.0.1:8888", timeout: float = 300.0
+        cls, base_url: str = "http://127.0.0.1:8899", timeout: float = 300.0
     ) -> HexStrikeHands:
         return cls(httpx.Client(base_url=base_url, timeout=timeout))
 
@@ -104,8 +133,24 @@ class HexStrikeHands:
 
     def call(self, tool: str, params: Mapping[str, JSON]) -> str:
         slug = _TOOL_ENDPOINT.get(tool, tool)
+        p = dict(params)
+
+        # Remap "target" to the param name each HexStrike endpoint expects
+        if "target" in p:
+            rename = _TARGET_PARAM.get(tool)
+            if rename:
+                p[rename] = p.pop("target")
+            elif tool == _HTTPX_TOOL:
+                # httpx endpoint builds `httpx -l {target}` treating it as a
+                # file path, which aborts on non-existent files. Set target to
+                # /dev/null (empty file) and pass real target via -u flag.
+                target = p["target"]
+                p["target"] = "/dev/null"
+                existing = str(p.get("additional_args", ""))
+                p["additional_args"] = f"-u {target} {existing}".strip()
+
         try:
-            resp = self._client.post(self._path.format(tool=slug), json=dict(params))
+            resp = self._client.post(self._path.format(tool=slug), json=p)
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
             return f"[tool_error] {tool}: HTTP {e.response.status_code}"

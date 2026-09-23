@@ -157,6 +157,7 @@ def _require_engagement() -> None:
 
 
 def _require_graph() -> MemgraphStore:
+    _ensure_backends()
     _require_engagement()
     if _state.graph is None:
         raise ValueError("Memgraph not connected. Set MEMGRAPH_URI env var.")
@@ -164,6 +165,7 @@ def _require_graph() -> MemgraphStore:
 
 
 def _require_hands() -> HexStrikeHands:
+    _ensure_backends()
     if _state.hands is None:
         raise ValueError("HexStrike not connected. Set HEXSTRIKE_URL env var.")
     return _state.hands
@@ -227,6 +229,7 @@ def intake_target(
 
     severity: minimum finding severity to report (critical, high, medium, low, none).
     """
+    _ensure_backends()
     result = intake_link(url, severity)
     _state.engagement_id = result.slug
     CliToonCodec()
@@ -625,8 +628,9 @@ def _prompt_continue(errors: list[str]) -> None:
     try:
         tty = open("/dev/tty")  # noqa: SIM115
     except OSError:
-        print("  No terminal available to prompt. Aborting.", file=sys.stderr)
-        raise SystemExit(1) from None
+        # No terminal (headless/harness) — continue degraded rather than abort
+        print("  No terminal available. Continuing with degraded services.\n", file=sys.stderr)
+        return
 
     try:
         print(
@@ -651,7 +655,7 @@ def connect_backends() -> None:
 
     Expects .env to be loaded BEFORE this is called (run_server handles it).
     """
-    hexstrike_url = os.environ.get("HEXSTRIKE_URL", "http://127.0.0.1:8888")
+    hexstrike_url = os.environ.get("HEXSTRIKE_URL", "http://127.0.0.1:8899")
     memgraph_uri = os.environ.get("MEMGRAPH_URI", "bolt://127.0.0.1:7687")
     memory_url = os.environ.get("JCYBER_MEMORY_URL")
     caido_proxy = os.environ.get("CAIDO_PROXY", "127.0.0.1:8889")
@@ -726,12 +730,30 @@ def disconnect_backends() -> None:
         _state.memory.close()
 
 
+_backends_connected = False
+
+
+def _ensure_backends() -> None:
+    """Lazy backend connection — called on first tool use, not startup.
+
+    This avoids blocking the MCP stdio handshake (initialize/tools-list)
+    which must complete within OMP's 30s timeout.
+    """
+    global _backends_connected
+    if _backends_connected:
+        return
+    _backends_connected = True
+    connect_backends()
+
+
 def run_server() -> None:
     """Start the MCP server (stdio transport)."""
     from dotenv import load_dotenv
 
     load_dotenv()  # .env secrets into os.environ BEFORE backend checks
-    connect_backends()
+    # ponytail: don't call connect_backends() here — it blocks 2+ seconds
+    # and prevents MCP initialize from responding within OMP's timeout.
+    # Backends connect lazily on first tool call via _ensure_backends().
     try:
         mcp.run(transport="stdio")
     finally:
