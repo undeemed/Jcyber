@@ -16,7 +16,7 @@ def test_normalize_summary_and_path() -> None:
     )
     assert ev.summary == "PORT 80 open | PORT 443 open"
     assert ev.sha256 == sha256_hex("PORT 80 open\nPORT 443 open")
-    assert ev.raw_path == f"evidence/raw/{ev.sha256}.txt"
+    assert ev.raw_path == "evidence/raw/E-001.txt"
     assert ev.id == "E-001"
 
 

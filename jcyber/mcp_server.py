@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from .clients.jev import JevClassifier
 
 from mcp.server.mcpserver import MCPServer
+from mcp_types import ToolAnnotations
 
 from .clients.caido import CaidoProxy
 from .clients.hexstrike import HexStrikeHands
@@ -219,7 +220,14 @@ mcp = MCPServer(
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
+    )
+)
 def intake_target(
     url: str,
     severity: str = "critical",
@@ -272,7 +280,14 @@ def intake_target(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
+    )
+)
 def get_state() -> str:
     """Get the current engagement state: phase, open hypotheses, recent
     evidence, validated findings, tools already run. Call this to decide
@@ -282,7 +297,14 @@ def get_state() -> str:
     return json.dumps(state, indent=2)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
+    )
+)
 def render_findings_report() -> str:
     """Render the final report as Markdown. Only includes validated findings
     with linked evidence. Call when the engagement is complete."""
@@ -291,7 +313,14 @@ def render_findings_report() -> str:
     return render_report(data)
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
+    )
+)
 def get_decision_trace() -> str:
     """Render the decision audit trail for this engagement. Shows every action
     taken, confidence scores, and gate outcomes."""
@@ -305,6 +334,19 @@ def get_decision_trace() -> str:
 # ---------------------------------------------------------------------------
 
 
+def _save_evidence_raw(ev_id: str, raw: str) -> str | None:
+    """Persist raw tool output to disk. Returns path on success, None on failure."""
+    evidence_dir = os.path.join("evidence", "raw")
+    try:
+        os.makedirs(evidence_dir, exist_ok=True)
+        path = os.path.join(evidence_dir, f"{ev_id}.txt")
+        with open(path, "w") as f:
+            f.write(raw)
+        return path
+    except OSError:
+        return None
+
+
 def _make_hexstrike_tool(tool_name: str, description: str):
     """Factory: create a scope-gated MCP tool that calls HexStrike."""
 
@@ -312,14 +354,13 @@ def _make_hexstrike_tool(tool_name: str, description: str):
     is_fuzzing = tool_name in FUZZING_TOOLS
 
     async def tool_fn(target: str, params: str = "{}") -> str:
-        # Scope gate — deterministic, non-jailbreakable
+        # Scope gate -- deterministic, non-jailbreakable
         _check_scope(target)
 
         if is_fuzzing:
             _check_fuzzing(target)
 
         if is_exploit:
-            # ponytail: return a confirmation prompt, don't auto-execute
             return json.dumps(
                 {
                     "status": "CONFIRMATION_REQUIRED",
@@ -334,6 +375,17 @@ def _make_hexstrike_tool(tool_name: str, description: str):
             )
 
         hands = _require_hands()
+
+        # Advisory availability check — warn but still attempt.  The /health
+        # schema is guessed; a mismatch must not disable the whole toolset.
+        avail = hands.is_tool_available(tool_name)
+        if avail is False:
+            print(
+                f"[jcyber] WARNING: {tool_name!r} may not be installed in HexStrike. "
+                "Attempting anyway.",
+                file=sys.stderr,
+            )
+
         extra: dict[str, Any] = json.loads(params) if params and params != "{}" else {}
         call_params: dict[str, Any] = {"target": target, **extra}
 
@@ -349,23 +401,52 @@ def _make_hexstrike_tool(tool_name: str, description: str):
 
         raw = hands.call(tool_name, call_params)
 
-        # Auto-normalize evidence into graph
-        if _state.graph is not None and not raw.startswith("[tool_error]"):
-            ev_id = _state.next_evidence_id()
-            ev = normalize(_state.engagement_id, tool_name, target, raw, ev_id)
-            if not _state.graph.seen_sha256(_state.engagement_id, ev.sha256):
-                _state.graph.insert_evidence(ev)
+        # Structured error on failure
+        if raw.startswith("[tool_error]"):
+            error_msg = raw[len("[tool_error] ") :]
+            error_type = (
+                "timeout"
+                if "timed out" in error_msg
+                else (
+                    "html_response"
+                    if "HTML" in error_msg
+                    else ("http_error" if "HTTP" in error_msg else "tool_error")
+                )
+            )
             return json.dumps(
                 {
-                    "evidence_id": ev_id,
+                    "status": "error",
+                    "error_type": error_type,
                     "tool": tool_name,
                     "target": target,
-                    "summary": ev.summary,
-                    "output": raw[:4000],  # cap for context window
+                    "message": error_msg,
                 }
             )
 
-        return raw
+        # Always persist raw output to disk
+        ev_id = _state.next_evidence_id()
+        raw_path = _save_evidence_raw(ev_id, raw)
+
+        # Auto-normalize evidence
+        ev = normalize(_state.engagement_id, tool_name, target, raw, ev_id)
+
+        # Insert into graph if connected and not a duplicate
+        if _state.graph is not None and not _state.graph.seen_sha256(
+            _state.engagement_id, ev.sha256
+        ):
+            _state.graph.insert_evidence(ev)
+
+        return json.dumps(
+            {
+                "status": "success",
+                "evidence_id": ev_id,
+                "tool": tool_name,
+                "target": target,
+                "summary": ev.summary,
+                "output": raw[:4000],
+                "raw_path": raw_path,
+            }
+        )
 
     # Set proper name and docstring for MCP registration
     tool_fn.__name__ = tool_name
@@ -377,9 +458,20 @@ def _make_hexstrike_tool(tool_name: str, description: str):
     return tool_fn
 
 
-# Register all HexStrike tools
+# Register all HexStrike tools with annotations
 for _name, _desc in TOOL_CATALOG.items():
-    mcp.add_tool(_make_hexstrike_tool(_name, _desc), name=_name)
+    _is_exploit = _name in EXPLOIT_TOOLS
+    _annotations = ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=_is_exploit,
+        idempotent_hint=False,
+        open_world_hint=True,
+    )
+    mcp.add_tool(
+        _make_hexstrike_tool(_name, _desc),
+        name=_name,
+        annotations=_annotations,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -387,7 +479,14 @@ for _name, _desc in TOOL_CATALOG.items():
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=False,
+    )
+)
 def create_hypothesis(
     text: str,
     evidence_id: str,
@@ -405,7 +504,14 @@ def create_hypothesis(
     return json.dumps({"hypothesis_id": hid, "text": text, "evidence_id": evidence_id})
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=False,
+    )
+)
 def promote_finding(
     hypothesis_id: str,
     title: str,
@@ -425,7 +531,14 @@ def promote_finding(
     return json.dumps({"finding_id": fid, "title": title, "from_hypothesis": hypothesis_id})
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
+    )
+)
 def score_finding(
     finding_id: str,
     severity: str,
@@ -454,7 +567,14 @@ def score_finding(
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
+    )
+)
 def retire_hypothesis(hypothesis_id: str, reason: str = "") -> str:
     """Retire a hypothesis that turned out to be false or untestable.
 
@@ -471,7 +591,14 @@ def retire_hypothesis(hypothesis_id: str, reason: str = "") -> str:
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=True,
+    )
+)
 def recall_lessons(scope_description: str = "") -> str:
     """Recall lessons from long-term memory (prior engagements on similar
     targets, known techniques for this tech stack). Call early in the
@@ -489,7 +616,14 @@ def recall_lessons(scope_description: str = "") -> str:
     return json.dumps(priors, indent=2) if priors else '{"lessons": []}'
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=True,
+    )
+)
 def commit_learnings() -> str:
     """Distill and commit learnings from this engagement to long-term memory.
     Call at the end of the engagement. Captures validated findings and
@@ -522,7 +656,14 @@ def _get_jev() -> JevClassifier:
     return _jev
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=True,
+    )
+)
 def suggest_severity(finding_id: str, title: str, evidence_summary: str) -> str:
     """Fast severity classification for a finding. Returns a suggested
     severity level (none/low/medium/high/critical) with confidence.
@@ -546,7 +687,14 @@ def suggest_severity(finding_id: str, title: str, evidence_summary: str) -> str:
     )
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=True,
+    )
+)
 def check_duplicate(new_evidence_summary: str) -> str:
     """Check if new evidence is substantially similar to existing evidence
     already in the graph. Returns a probability (0-1).
@@ -604,48 +752,17 @@ def _parse_host_port(addr: str, default_port: int = 8889) -> tuple[str, int]:
     return addr, default_port
 
 
-def _prompt_continue(errors: list[str]) -> None:
-    """Print missing-service errors and prompt operator to continue or abort.
+def _log_degraded(errors: list[str]) -> None:
+    """Log missing-service warnings to stderr. Never prompts, never aborts.
 
-    MCP uses stdin/stdout so we read from /dev/tty (the controlling terminal).
-    Set JCYBER_NONINTERACTIVE=1 to skip the prompt and abort (safe default
-    for harness / CI runs where no human watches the server's tty).
+    This runs inside the lazy-connect path (_ensure_backends) which fires
+    during the first tool call on a LIVE MCP server. Prompting via /dev/tty
+    would hang (nobody watching) and SystemExit would tear down the stdio
+    transport, causing "transport not connected" failures on the harness side.
     """
-    print("\n[jcyber] BLOCKED - required services not ready:", file=sys.stderr)
+    print("\n[jcyber] WARNING - some services unavailable:", file=sys.stderr)
     for err in errors:
-        print(f"  x {err}", file=sys.stderr)
-    print(file=sys.stderr)
-
-    # Non-interactive mode: no prompt, abort immediately
-    if os.environ.get("JCYBER_NONINTERACTIVE"):
-        print(
-            "  JCYBER_NONINTERACTIVE is set. Aborting.\n"
-            "  Unset it or fix services above to proceed.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-
-    try:
-        tty = open("/dev/tty")  # noqa: SIM115
-    except OSError:
-        # No terminal (headless/harness) — continue degraded rather than abort
-        print("  No terminal available. Continuing with degraded services.\n", file=sys.stderr)
-        return
-
-    try:
-        print(
-            "  Continue anyway? Evidence/scanning may be degraded. [y/N] ",
-            end="",
-            file=sys.stderr,
-            flush=True,
-        )
-        answer = tty.readline().strip().lower()
-    finally:
-        tty.close()
-
-    if answer not in ("y", "yes"):
-        print("  Aborting. Fix the services above and retry.", file=sys.stderr)
-        raise SystemExit(1)
+        print(f"  ! {err}", file=sys.stderr)
     print("  Continuing with degraded services.\n", file=sys.stderr)
 
 
@@ -716,7 +833,7 @@ def connect_backends() -> None:
         errors.append("TYPESAFE_API_KEY not set")
 
     if errors:
-        _prompt_continue(errors)
+        _log_degraded(errors)
 
 
 def disconnect_backends() -> None:

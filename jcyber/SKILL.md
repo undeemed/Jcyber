@@ -100,6 +100,50 @@ All IDs are sequential per engagement, never reused:
 - Call `render_findings_report` to produce the final report
 - Call `commit_learnings` to save lessons for future engagements
 
+## Validation Guardrails
+
+**Every finding must survive these checks before promotion.** These come
+from real false-positives in prior engagements.
+
+### Negative controls
+- **Author/user enumeration**: test with a random nonsense slug. If it
+  returns the same result (e.g. `posts=1`), the endpoint has a catch-all
+  fallback -- not real user disclosure. Drop it.
+- **SPA catch-all routing**: React/Vue/Angular SPAs return 200 + identical
+  HTML for every path (`/api`, `/admin`, `/.env`). Verify response body
+  differs per path before treating as a real endpoint.
+- **Payment/webhook callbacks**: `{"received": true}` may be a static
+  acknowledgment, not proof the backend processed a forged payment. Verify
+  actual state change (order status, balance) before claiming impact.
+
+### CORS / CSRF / cookie reasoning
+- Check `SameSite` cookie attribute before claiming cross-origin attacks.
+  WordPress defaults to `SameSite=Lax` since WP 5.2 (2019). Under Lax,
+  `<script>` tags and CORS fetch-with-credentials both fail for auth cookies.
+- CORS origin reflection with `credentials: true` is a real misconfiguration
+  but impact depends on what the attacker can actually read cross-origin.
+  Nonce-protected endpoints are not exploitable via CORS alone.
+- Anonymous session tokens (WooCommerce `t_` cart tokens, User-ID: 0 nonces)
+  are not credentials -- extracting your own anonymous token is not a finding.
+
+### DoS vs. rate-limiting
+- If a service goes down after injection testing, check whether your IP was
+  blocked (fail2ban/iptables) before claiming a crash. Test from a different
+  IP or check SSH access to distinguish defensive rate-limiting from real DoS.
+
+### Version-specific CVEs
+- Fingerprint the exact version before claiming a CVE applies. "Nginx 1.18"
+  on Ubuntu may be patched via backports -- check the distro package version.
+- OpenSSH: `.p1` suffix (e.g. `8.9p1`) is upstream portable; distro patches
+  may fix CVEs without bumping the version string.
+
+### PII and data leaks
+- Directory listing with real names, emails, payment details, and addresses
+  is HIGH severity, not LOW. Cross-reference data to confirm it belongs to
+  real people before reporting.
+- Receipt PDFs, invoices, and payment confirmations in public upload
+  directories are PII leaks regardless of whether they contain passwords.
+
 ## Severity Guide
 
 | Level | Criteria |

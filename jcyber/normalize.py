@@ -46,5 +46,5 @@ def normalize(engagement_id: str, tool: str, target: str, raw: str, ev_id: str) 
         ts=datetime.now(UTC).isoformat(),
         summary=_summarize(raw),
         sha256=sha,
-        raw_path=f"evidence/raw/{sha}.txt",
+        raw_path=f"evidence/raw/{ev_id}.txt",
     )

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import os
 import socket
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -58,7 +57,7 @@ def _patch_all_ok():
 
 
 # ---------------------------------------------------------------------------
-# All services up → no prompt
+# All services up - no degraded warning
 # ---------------------------------------------------------------------------
 
 
@@ -73,14 +72,14 @@ def test_all_services_up_no_prompt():
         patches[2],
         patches[3],
         patches[4],
-        patch("jcyber.mcp_server._prompt_continue") as mock_prompt,
+        patch("jcyber.mcp_server._log_degraded") as mock_prompt,
     ):
         connect_backends()
         mock_prompt.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
-# HexStrike .ping() failure → prompt (not just .connect())
+# HexStrike .ping() failure - degraded warning (not just .connect())
 # ---------------------------------------------------------------------------
 
 
@@ -97,7 +96,7 @@ def test_hexstrike_ping_fails_triggers_prompt():
         patch("jcyber.mcp_server.CaidoProxy.connect", return_value=MagicMock()),
         patch("jcyber.mcp_server.TencentMemory.connect", return_value=MagicMock()),
         patch("jcyber.mcp_server._tcp_probe"),
-        patch("jcyber.mcp_server._prompt_continue") as mock_prompt,
+        patch("jcyber.mcp_server._log_degraded") as mock_prompt,
     ):
         connect_backends()
         mock_prompt.assert_called_once()
@@ -106,7 +105,7 @@ def test_hexstrike_ping_fails_triggers_prompt():
 
 
 # ---------------------------------------------------------------------------
-# Caido proxy TCP probe failure → prompt
+# Caido proxy TCP probe failure - degraded warning
 # ---------------------------------------------------------------------------
 
 
@@ -120,7 +119,7 @@ def test_caido_proxy_tcp_fail_triggers_prompt():
         patch("jcyber.mcp_server.CaidoProxy.connect", return_value=MagicMock()),
         patch("jcyber.mcp_server.TencentMemory.connect", return_value=MagicMock()),
         patch("jcyber.mcp_server._tcp_probe", side_effect=ConnectionRefusedError("refused")),
-        patch("jcyber.mcp_server._prompt_continue") as mock_prompt,
+        patch("jcyber.mcp_server._log_degraded") as mock_prompt,
     ):
         connect_backends()
         mock_prompt.assert_called_once()
@@ -129,7 +128,7 @@ def test_caido_proxy_tcp_fail_triggers_prompt():
 
 
 # ---------------------------------------------------------------------------
-# Caido API .ping() failure → prompt (distinct from proxy check)
+# Caido API .ping() failure - degraded warning (distinct from proxy check)
 # ---------------------------------------------------------------------------
 
 
@@ -146,7 +145,7 @@ def test_caido_api_ping_fails_triggers_prompt():
         patch("jcyber.mcp_server.CaidoProxy.connect", return_value=caido),
         patch("jcyber.mcp_server.TencentMemory.connect", return_value=MagicMock()),
         patch("jcyber.mcp_server._tcp_probe"),
-        patch("jcyber.mcp_server._prompt_continue") as mock_prompt,
+        patch("jcyber.mcp_server._log_degraded") as mock_prompt,
     ):
         connect_backends()
         mock_prompt.assert_called_once()
@@ -155,7 +154,7 @@ def test_caido_api_ping_fails_triggers_prompt():
 
 
 # ---------------------------------------------------------------------------
-# Missing env vars → prompt
+# Missing env vars - degraded warning
 # ---------------------------------------------------------------------------
 
 
@@ -170,7 +169,7 @@ def test_missing_env_vars_trigger_prompt():
         patch("jcyber.mcp_server.MemgraphStore.connect", return_value=MagicMock()),
         patch("jcyber.mcp_server.CaidoProxy.connect", return_value=MagicMock()),
         patch("jcyber.mcp_server._tcp_probe"),
-        patch("jcyber.mcp_server._prompt_continue") as mock_prompt,
+        patch("jcyber.mcp_server._log_degraded") as mock_prompt,
     ):
         connect_backends()
         mock_prompt.assert_called_once()
@@ -180,60 +179,16 @@ def test_missing_env_vars_trigger_prompt():
 
 
 # ---------------------------------------------------------------------------
-# _prompt_continue: operator answers y/n/headless/noninteractive
+# _log_degraded: always continues, never prompts, never aborts
 # ---------------------------------------------------------------------------
 
 
-def test_prompt_aborts_on_no(tmp_path: Path) -> None:
-    from jcyber.mcp_server import _prompt_continue
+def test_log_degraded_never_raises():
+    """_log_degraded logs warnings and returns -- never prompts or aborts."""
+    from jcyber.mcp_server import _log_degraded
 
-    fake_tty = tmp_path / "tty"
-    fake_tty.write_text("n\n")
-
-    with (
-        patch.dict(os.environ, {}, clear=True),
-        patch("builtins.open", return_value=open(fake_tty)),
-        pytest.raises(SystemExit, match="1"),
-    ):
-        _prompt_continue(["HexStrike down"])
-
-
-def test_prompt_continues_on_yes(tmp_path: Path) -> None:
-    from jcyber.mcp_server import _prompt_continue
-
-    fake_tty = tmp_path / "tty"
-    fake_tty.write_text("y\n")
-
-    with (
-        patch.dict(os.environ, {}, clear=True),
-        patch("builtins.open", return_value=open(fake_tty)),
-    ):
-        _prompt_continue(["HexStrike down"])  # should not raise
-
-
-def test_prompt_continues_headless():
-    """No terminal available → continue with degraded services (auto-continue)."""
-    from jcyber.mcp_server import _prompt_continue
-
-    with (
-        patch.dict(os.environ, {}, clear=True),
-        patch("builtins.open", side_effect=OSError("no tty")),
-    ):
-        # should return normally, not raise SystemExit
-        _prompt_continue(["HexStrike down"])
-
-
-def test_noninteractive_aborts_without_prompt():
-    """JCYBER_NONINTERACTIVE=1 → abort immediately, never open /dev/tty."""
-    from jcyber.mcp_server import _prompt_continue
-
-    with (
-        patch.dict(os.environ, {"JCYBER_NONINTERACTIVE": "1"}, clear=True),
-        patch("builtins.open") as mock_open,
-        pytest.raises(SystemExit, match="1"),
-    ):
-        _prompt_continue(["HexStrike down"])
-    mock_open.assert_not_called()
+    # Should not raise SystemExit or block
+    _log_degraded(["HexStrike down", "Memgraph unreachable"])
 
 
 # ---------------------------------------------------------------------------

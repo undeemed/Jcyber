@@ -15,6 +15,47 @@ import httpx
 
 from jcyber.types import JSON
 
+# Per-tool timeout overrides (seconds). Tools not listed use the client
+# default (300s). Recon behind CDN/WAF needs shorter timeouts; exploit
+# tools need longer ones.
+_TOOL_TIMEOUT: dict[str, float] = {
+    # recon - passive (fast, external APIs)
+    "subfinder_scan": 120,
+    "amass_scan": 180,
+    "gau_discovery": 60,
+    "waybackurls_discovery": 60,
+    "paramspider_discovery": 60,
+    "httpx_probe": 120,
+    "wafw00f_scan": 30,
+    # recon - active (may hit CDN/firewall)
+    "nmap_scan": 180,
+    "rustscan_fast_scan": 60,
+    "masscan_high_speed": 120,
+    "nikto_scan": 180,
+    "http_framework_test": 30,
+    # crawling (can run long on big sites)
+    "katana_crawl": 180,
+    "hakrawler_crawl": 120,
+    # brute-force (variable)
+    "gobuster_scan": 180,
+    "dirb_scan": 180,
+    "ffuf_scan": 180,
+    "feroxbuster_scan": 180,
+    # probing (moderate)
+    "nuclei_scan": 300,
+    "wpscan_analyze": 120,
+    "arjun_scan": 120,
+    # quick checks
+    "jwt_analyzer": 30,
+    "qsreplace": 15,
+    "http_repeater": 30,
+}
+
+
+# Common HTML markers that indicate we got a proxy/SPA page instead of
+# actual tool output.
+_HTML_MARKERS = ("<!doctype", "<html", "<!DOCTYPE")
+
 # MCP tool name -> REST endpoint slug for /api/tools/<slug>, verified against
 # hexstrike_server.py @app.route declarations (HexStrike v6, 2026-09-19).
 # Every tool jcyber exposes via MCP must have an entry here.
@@ -107,29 +148,80 @@ def _extract(text: str) -> str:
     except ValueError:
         return text
     if isinstance(obj, dict):
-        out = cast("dict[str, object]", obj).get("stdout")
+        d = cast("dict[str, object]", obj)
+        # Surface error from HexStrike envelope
+        if d.get("error"):
+            return f"[tool_error] {d['error']}"
+        out = d.get("stdout")
         if isinstance(out, str) and out.strip():
             return out.strip()
     return text
 
 
+def _looks_like_html(text: str) -> bool:
+    """True if text starts with an HTML doctype or tag -- proxy/SPA garbage."""
+    stripped = text.lstrip()[:20]
+    return any(stripped.startswith(m) for m in _HTML_MARKERS)
+
+
 class HexStrikeHands:
-    def __init__(self, client: httpx.Client, path_template: str = "/api/tools/{tool}") -> None:
+    def __init__(
+        self,
+        client: httpx.Client,
+        path_template: str = "/api/tools/{tool}",
+        default_timeout: float = 300.0,
+    ) -> None:
         self._client = client
         self._path = path_template
+        self._default_timeout = default_timeout
+        self._available_tools: frozenset[str] | None = None
 
     @classmethod
     def connect(
         cls, base_url: str = "http://127.0.0.1:8899", timeout: float = 300.0
     ) -> HexStrikeHands:
-        return cls(httpx.Client(base_url=base_url, timeout=timeout))
+        return cls(httpx.Client(base_url=base_url, timeout=timeout), default_timeout=timeout)
 
     def close(self) -> None:
         self._client.close()
 
     def ping(self) -> None:
-        """Hit GET /health — raises on connection failure or non-2xx."""
+        """Hit GET /health -- raises on connection failure or non-2xx."""
         self._client.get("/health").raise_for_status()
+
+    def fetch_available_tools(self) -> frozenset[str]:
+        """Query /health and return the set of tools HexStrike reports as
+        installed/available.  Caches the result for the session lifetime."""
+        if self._available_tools is not None:
+            return self._available_tools
+        try:
+            resp = self._client.get("/health", timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            available: set[str] = set()
+            # /health returns {categories: {name: {tools: {name: {installed: bool}}}}}
+            cats = data.get("categories", {})
+            if isinstance(cats, dict):
+                for cat in cats.values():
+                    tools = cat.get("tools", {}) if isinstance(cat, dict) else {}
+                    if isinstance(tools, dict):
+                        for tname, tinfo in tools.items():
+                            if isinstance(tinfo, dict) and tinfo.get("installed"):
+                                available.add(tname)
+            self._available_tools = frozenset(available)
+        except Exception:
+            # /health unavailable -- assume all tools available
+            self._available_tools = frozenset()
+        return self._available_tools
+
+    def is_tool_available(self, mcp_name: str) -> bool | None:
+        """Check if the underlying binary for an MCP tool is installed in
+        HexStrike.  Returns None if availability data is unavailable."""
+        avail = self.fetch_available_tools()
+        if not avail:
+            return None  # no data
+        slug = _TOOL_ENDPOINT.get(mcp_name, mcp_name)
+        return slug in avail
 
     def call(self, tool: str, params: Mapping[str, JSON]) -> str:
         slug = _TOOL_ENDPOINT.get(tool, tool)
@@ -141,19 +233,32 @@ class HexStrikeHands:
             if rename:
                 p[rename] = p.pop("target")
             elif tool == _HTTPX_TOOL:
-                # httpx endpoint builds `httpx -l {target}` treating it as a
-                # file path, which aborts on non-existent files. Set target to
-                # /dev/null (empty file) and pass real target via -u flag.
                 target = p["target"]
                 p["target"] = "/dev/null"
                 existing = str(p.get("additional_args", ""))
                 p["additional_args"] = f"-u {target} {existing}".strip()
 
+        timeout = _TOOL_TIMEOUT.get(tool, self._default_timeout)
+
         try:
-            resp = self._client.post(self._path.format(tool=slug), json=p)
+            resp = self._client.post(self._path.format(tool=slug), json=p, timeout=timeout)
             resp.raise_for_status()
+        except httpx.TimeoutException:
+            return f"[tool_error] {tool}: timed out after {timeout}s"
         except httpx.HTTPStatusError as e:
             return f"[tool_error] {tool}: HTTP {e.response.status_code}"
         except httpx.HTTPError as e:
             return f"[tool_error] {tool}: {type(e).__name__}: {e}"
+
+        # Detect proxy/SPA garbage BEFORE extraction.  The Caido port-collision
+        # signature is raw HTML as the HTTP body (not valid JSON).  Tools like
+        # browser_agent_inspect and http_repeater legitimately return HTML
+        # inside the JSON envelope's "stdout" field — that's fine.
+        if _looks_like_html(resp.text):
+            return (
+                f"[tool_error] {tool}: response is HTML, not tool output. "
+                "HexStrike may be routing through a proxy that intercepted "
+                "the request. Check HEXSTRIKE_URL and Caido port assignments."
+            )
+
         return _extract(resp.text)
