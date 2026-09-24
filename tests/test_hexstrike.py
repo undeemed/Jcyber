@@ -152,7 +152,6 @@ def test_is_tool_available() -> None:
 
 def test_per_tool_timeout_used() -> None:
     """Per-tool timeout overrides default."""
-    seen_timeouts: list[float] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, text="ok")
