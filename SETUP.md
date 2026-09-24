@@ -37,7 +37,7 @@ python hexstrike_server.py
 
 Verify both are up:
 ```
-curl http://127.0.0.1:8888/health    # HexStrike -> 200
+curl http://127.0.0.1:8899/health    # HexStrike -> 200
 uv run python -m jcyber.clients.memgraph --smoke   # Memgraph -> ok
 ```
 
@@ -107,7 +107,7 @@ you're good.
 
 | Service | Port | What |
 |---------|------|------|
-| HexStrike | 8888 | Security tools REST API |
+| HexStrike | 8899 | Security tools REST API |
 | Memgraph | 7687 | Engagement graph (Bolt) |
 | Memgraph Lab | 3000 | Graph web UI |
 | Caido | 8889 / 8080 | HTTP proxy (8889) and instance API (8080) |

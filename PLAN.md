@@ -39,7 +39,7 @@ flowchart LR
     LEARN[Distiller<br/>to long-term memory]
   end
 
-  HX[("HexStrike<br/>150+ tools<br/>REST 127.0.0.1:8888")]
+  HX[("HexStrike<br/>150+ tools<br/>REST 127.0.0.1:8899")]
   CD[("Caido<br/>proxy 127.0.0.1:8889<br/>HTTPQL, Autorize, Scanner")]
   MG[("Memgraph<br/>engagement graph")]
   TD[("TencentDB Memory<br/>cross-engagement recall")]
@@ -163,7 +163,7 @@ IDs are sequential per engagement (H-001, E-001, F-001), never reused.
 ## 9. Source notes
 
 - HexStrike v6 (clone, `master` `d689933`, 2026-09-19): MCP server
-  `hexstrike_mcp.py` = 151 `@mcp.tool()` entries; REST on `:8888`. Its
+  `hexstrike_mcp.py` = 151 `@mcp.tool()` entries; REST on `:8899`. Its
   "Intelligent Decision Engine" is source-verified hard-coded heuristics (no
   model, no BYOK, no LLM client in `requirements.txt`). Jcyber never calls
   HexStrike's AI layer.

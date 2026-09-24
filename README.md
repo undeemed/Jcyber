@@ -21,7 +21,7 @@ Jcyber MCP Server ---- scope gate (pre-hook, every call)
     |          |            |             |
     v          v            v             v
 HexStrike  Memgraph    TencentDB      Caido
-(:8888)    (:7687)     (memory)       (:8889)
+(:8899)    (:7687)     (memory)       (:8889)
     |                                    |
     +----------> Target <----------------+
 ```
@@ -52,7 +52,7 @@ evidence is normalized into the engagement graph.
 
 - **Python 3.12+** and [`uv`](https://docs.astral.sh/uv/)
 - **Docker** (for Memgraph)
-- **HexStrike server** running on `:8888`
+- **HexStrike server** running on `:8899`
 - **Caido** proxy on `:8889` (API on `:8080`)
 - **Secrets in `.env`:** `TYPESAFE_API_KEY`, `CAIDO_API_TOKEN` (auto-loaded by `python-dotenv`)
 
@@ -60,7 +60,7 @@ evidence is normalized into the engagement graph.
 
 | Service | Port | Notes |
 |---------|------|-------|
-| HexStrike | 8888 | REST API for security tools |
+| HexStrike | 8899 | REST API for security tools |
 | Caido | 8889 | HTTP proxy, passive plugins |
 | Memgraph | 7687 | Bolt protocol (graph DB) |
 | Memgraph Lab | 3000 | Web UI for graph inspection |
@@ -111,14 +111,13 @@ MCP tool calls.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `HEXSTRIKE_URL` | `http://127.0.0.1:8888` | HexStrike REST endpoint |
+| `HEXSTRIKE_URL` | `http://127.0.0.1:8899` | HexStrike REST endpoint |
 | `MEMGRAPH_URI` | `bolt://127.0.0.1:7687` | Memgraph Bolt endpoint |
 | `JCYBER_MEMORY_URL` | (none) | TencentDB memory-core endpoint |
 | `CAIDO_PROXY` | `127.0.0.1:8889` | Caido proxy listener (TCP health-checked) |
 | `CAIDO_API_URL` | `http://127.0.0.1:8080` | Caido instance GraphQL API |
 | `CAIDO_API_TOKEN` | (none) | Caido access token (in `.env`) |
 | `TYPESAFE_API_KEY` | (none) | TypeSafe API key for Jev classifiers (in `.env`) |
-| `JCYBER_NONINTERACTIVE` | (unset) | Set `1` to abort on missing services (no prompt) |
 
 Secrets live in `.env` (auto-loaded by `python-dotenv` at startup).
 

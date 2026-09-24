@@ -16,7 +16,7 @@ flowchart LR
     LEARN[Distiller<br/>to long-term memory]
   end
 
-  HX[("HexStrike<br/>150+ tools<br/>REST 127.0.0.1:8888")]
+  HX[("HexStrike<br/>150+ tools<br/>REST 127.0.0.1:8899")]
   CD[("Caido<br/>proxy 127.0.0.1:8889<br/>HTTPQL, Autorize, Scanner")]
   MG[("Memgraph<br/>engagement graph")]
   TD[("TencentDB Memory<br/>cross-engagement recall")]

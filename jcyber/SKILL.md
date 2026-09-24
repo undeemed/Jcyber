@@ -151,8 +151,13 @@ from real false-positives in prior engagements.
 | critical | RCE, auth bypass, full DB dump, admin takeover |
 | high | SQLi (limited), stored XSS, IDOR with sensitive data, SSRF to internal |
 | medium | Reflected XSS, CSRF on state-changing actions, info disclosure (versions, paths) |
-| low | Missing headers, verbose errors, directory listing |
+| low | Missing headers, verbose errors, directory listing (non-sensitive files only) |
 | none | Informational only, no security impact |
+
+**Rate by what's exposed, not the mechanism.** A directory listing that
+reveals PII, payment receipts, credentials, or internal documents is HIGH
+or CRITICAL -- not LOW. The same mechanism at different exposure levels
+gets different severity.
 
 ## Workflow Example
 

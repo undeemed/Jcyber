@@ -34,7 +34,7 @@ operator must approve before any exploit runs.
 Caido is the traffic substrate: every target-touching call flows through a
 pinned local proxy (`127.0.0.1:8889`), so all wire traffic is logged and
 passively plugin-checked (Autorize, Scanner). Port 8889 is one above
-HexStrike's REST default `:8888`, so the pair stays adjacent and
+HexStrike's REST default `:8899`, so the pair stays adjacent and
 collision-free.
 
 **Is anything runnable today?**
@@ -42,7 +42,7 @@ Yes. The MCP server with 54 tools, scope gate, evidence graph, and finding
 lifecycle. `python -m jcyber serve` starts it. Connect any MCP-capable agent.
 
 **What backends are required?**
-- HexStrike server on `:8888` (the scanning tools)
+- HexStrike server on `:8899` (the scanning tools)
 - Memgraph on `:7687` (the engagement graph)
 - Caido on `:8889` (proxy) and `:8080` (API)
 - `TYPESAFE_API_KEY` and `CAIDO_API_TOKEN` in `.env`
