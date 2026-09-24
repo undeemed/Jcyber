@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 """HexStrike adapter maps MCP tool names to the verified REST endpoint slugs
 (/api/tools/<slug>). http_repeater -> http-framework is the non-obvious one;
 an unmapped name passes through unchanged (correct for tools whose MCP name

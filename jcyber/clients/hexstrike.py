@@ -164,6 +164,30 @@ def _looks_like_html(text: str) -> bool:
     return any(stripped.startswith(m) for m in _HTML_MARKERS)
 
 
+def _parse_health_tools(text: str) -> frozenset[str]:
+    """Extract installed tool names from HexStrike /health JSON response."""
+    try:
+        data = json.loads(text)
+    except (ValueError, TypeError):
+        return frozenset()
+    if not isinstance(data, dict):
+        return frozenset()
+    cats = data.get("categories")  # type: ignore[union-attr]
+    if not isinstance(cats, dict):
+        return frozenset()
+    available: set[str] = set()
+    for cat_val in cats.values():  # type: ignore[union-attr]
+        if not isinstance(cat_val, dict):
+            continue
+        raw_tools = cat_val.get("tools")  # type: ignore[union-attr]
+        if not isinstance(raw_tools, dict):
+            continue
+        for tname, tinfo in raw_tools.items():  # type: ignore[union-attr]
+            if isinstance(tinfo, dict) and tinfo.get("installed"):  # type: ignore[union-attr]
+                available.add(str(tname))  # type: ignore[arg-type]
+    return frozenset(available)
+
+
 class HexStrikeHands:
     def __init__(
         self,
@@ -197,18 +221,7 @@ class HexStrikeHands:
         try:
             resp = self._client.get("/health", timeout=10)
             resp.raise_for_status()
-            data = resp.json()
-            available: set[str] = set()
-            # /health returns {categories: {name: {tools: {name: {installed: bool}}}}}
-            cats = data.get("categories", {})
-            if isinstance(cats, dict):
-                for cat in cats.values():
-                    tools = cat.get("tools", {}) if isinstance(cat, dict) else {}
-                    if isinstance(tools, dict):
-                        for tname, tinfo in tools.items():
-                            if isinstance(tinfo, dict) and tinfo.get("installed"):
-                                available.add(tname)
-            self._available_tools = frozenset(available)
+            self._available_tools = _parse_health_tools(resp.text)
         except Exception:
             # /health unavailable -- assume all tools available
             self._available_tools = frozenset()
