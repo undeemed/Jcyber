@@ -1,3 +1,4 @@
+# pyright: reportPrivateUsage=false
 """Preflight service checks — connect_backends must probe each service with
 real network I/O and block when any is unreachable.  Also covers .env loading
 (the root cause of the original "missing TYPESAFE_API_KEY" report)."""
@@ -6,6 +7,7 @@ from __future__ import annotations
 
 import os
 import socket
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -182,7 +184,7 @@ def test_missing_env_vars_trigger_prompt():
 # ---------------------------------------------------------------------------
 
 
-def test_prompt_aborts_on_no(tmp_path):
+def test_prompt_aborts_on_no(tmp_path: Path) -> None:
     from jcyber.mcp_server import _prompt_continue
 
     fake_tty = tmp_path / "tty"
@@ -196,7 +198,7 @@ def test_prompt_aborts_on_no(tmp_path):
         _prompt_continue(["HexStrike down"])
 
 
-def test_prompt_continues_on_yes(tmp_path):
+def test_prompt_continues_on_yes(tmp_path: Path) -> None:
     from jcyber.mcp_server import _prompt_continue
 
     fake_tty = tmp_path / "tty"
@@ -209,14 +211,15 @@ def test_prompt_continues_on_yes(tmp_path):
         _prompt_continue(["HexStrike down"])  # should not raise
 
 
-def test_prompt_aborts_headless():
+def test_prompt_continues_headless():
+    """No terminal available → continue with degraded services (auto-continue)."""
     from jcyber.mcp_server import _prompt_continue
 
     with (
         patch.dict(os.environ, {}, clear=True),
         patch("builtins.open", side_effect=OSError("no tty")),
-        pytest.raises(SystemExit, match="1"),
     ):
+        # should return normally, not raise SystemExit
         _prompt_continue(["HexStrike down"])
 
 
@@ -267,29 +270,23 @@ def test_tcp_probe_refuses():
 
 
 def test_run_server_loads_dotenv():
-    """run_server must call load_dotenv() before connect_backends()."""
+    """run_server must call load_dotenv() before mcp.run()."""
     from jcyber.mcp_server import run_server
 
     call_order: list[str] = []
 
-    def fake_load_dotenv():
+    def fake_load_dotenv() -> None:
         call_order.append("load_dotenv")
 
-    def fake_connect():
-        call_order.append("connect_backends")
-
-    def fake_run(**_):
-        pass  # don't actually start MCP
+    def fake_run(**_: object) -> None:
+        call_order.append("mcp_run")
 
     with (
-        patch("jcyber.mcp_server.load_dotenv", fake_load_dotenv, create=True),
-        patch("jcyber.mcp_server.connect_backends", fake_connect),
         patch("jcyber.mcp_server.mcp") as mock_mcp,
         patch("jcyber.mcp_server.disconnect_backends"),
     ):
         mock_mcp.run = fake_run
-        # load_dotenv is imported inside run_server, so patch the import
         with patch.dict("sys.modules", {"dotenv": MagicMock(load_dotenv=fake_load_dotenv)}):
             run_server()
 
-    assert call_order == ["load_dotenv", "connect_backends"]
+    assert call_order == ["load_dotenv", "mcp_run"]
