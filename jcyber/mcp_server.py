@@ -767,73 +767,8 @@ def _log_degraded(errors: list[str]) -> None:
 
 
 def connect_backends() -> None:
-    """Connect to all backends. Every service is checked; failures are
-    collected and the operator is prompted before the server proceeds.
-
-    Expects .env to be loaded BEFORE this is called (run_server handles it).
-    """
-    hexstrike_url = os.environ.get("HEXSTRIKE_URL", "http://127.0.0.1:8899")
-    memgraph_uri = os.environ.get("MEMGRAPH_URI", "bolt://127.0.0.1:7687")
-    memory_url = os.environ.get("JCYBER_MEMORY_URL")
-    caido_proxy = os.environ.get("CAIDO_PROXY", "127.0.0.1:8889")
-    caido_api_url = os.environ.get("CAIDO_API_URL", "http://127.0.0.1:8080")
-    caido_token = os.environ.get("CAIDO_API_TOKEN")
-
-    errors: list[str] = []
-
-    # -- HexStrike (scanning) ----------------------------------------------
-    try:
-        _state.hands = HexStrikeHands.connect(hexstrike_url)
-        _state.hands.ping()  # GET /health - actual network probe
-        print(f"[jcyber] ok HexStrike @ {hexstrike_url}", file=sys.stderr)
-    except Exception as e:
-        _state.hands = None
-        errors.append(f"HexStrike @ {hexstrike_url}: {e}")
-
-    # -- Memgraph (evidence graph) -----------------------------------------
-    try:
-        _state.graph = MemgraphStore.connect(memgraph_uri)
-        _state.graph.ping()
-        print(f"[jcyber] ok Memgraph @ {memgraph_uri}", file=sys.stderr)
-    except Exception as e:
-        _state.graph = None
-        errors.append(f"Memgraph @ {memgraph_uri}: {e}")
-
-    # -- Caido proxy (TCP probe on proxy listener port) --------------------
-    try:
-        host, port = _parse_host_port(caido_proxy)
-        _tcp_probe(host, port)
-        print(f"[jcyber] ok Caido proxy @ {caido_proxy}", file=sys.stderr)
-    except Exception as e:
-        errors.append(f"Caido proxy @ {caido_proxy}: {e}")
-
-    # -- Caido API (GraphQL - for findings pull) ---------------------------
-    try:
-        _state.caido = CaidoProxy.connect(caido_api_url, token=caido_token)
-        _state.caido.ping()  # POST /graphql {__typename}
-        print(f"[jcyber] ok Caido API @ {caido_api_url}", file=sys.stderr)
-    except Exception as e:
-        _state.caido = None
-        errors.append(f"Caido API @ {caido_api_url}: {e}")
-
-    # -- TencentDB memory --------------------------------------------------
-    if memory_url:
-        try:
-            _state.memory = TencentMemory.connect(memory_url)
-            print(f"[jcyber] ok Memory @ {memory_url}", file=sys.stderr)
-        except Exception as e:
-            errors.append(f"Memory @ {memory_url}: {e}")
-    else:
-        errors.append("JCYBER_MEMORY_URL not set")
-
-    # -- TYPESAFE_API_KEY (Jev classifier) ----------------------------------
-    if os.environ.get("TYPESAFE_API_KEY"):
-        print("[jcyber] ok TYPESAFE_API_KEY present", file=sys.stderr)
-    else:
-        errors.append("TYPESAFE_API_KEY not set")
-
-    if errors:
-        _log_degraded(errors)
+    """Connect to all backends. Delegates to _connect_missing_backends."""
+    _connect_missing_backends()
 
 
 def disconnect_backends() -> None:
@@ -847,20 +782,89 @@ def disconnect_backends() -> None:
         _state.memory.close()
 
 
-_backends_connected = False
+_backends_initialized = False
 
 
 def _ensure_backends() -> None:
     """Lazy backend connection — called on first tool use, not startup.
 
-    This avoids blocking the MCP stdio handshake (initialize/tools-list)
-    which must complete within OMP's 30s timeout.
+    Retries any backend that is still None on every call, so transient
+    failures (service not yet started) recover without server restart.
     """
-    global _backends_connected
-    if _backends_connected:
+    global _backends_initialized
+    if _backends_initialized and _all_backends_up():
         return
-    _backends_connected = True
-    connect_backends()
+    _connect_missing_backends()
+    _backends_initialized = True
+
+
+def _all_backends_up() -> bool:
+    """True when all network backends are connected (env-only checks excluded)."""
+    return _state.hands is not None and _state.graph is not None
+
+
+def _connect_missing_backends() -> None:
+    """Connect only backends that are still None. Idempotent."""
+    hexstrike_url = os.environ.get("HEXSTRIKE_URL", "http://127.0.0.1:8899")
+    memgraph_uri = os.environ.get("MEMGRAPH_URI", "bolt://127.0.0.1:7687")
+    memory_url = os.environ.get("JCYBER_MEMORY_URL")
+    caido_proxy = os.environ.get("CAIDO_PROXY", "127.0.0.1:8889")
+    caido_api_url = os.environ.get("CAIDO_API_URL", "http://127.0.0.1:8080")
+    caido_token = os.environ.get("CAIDO_API_TOKEN")
+
+    errors: list[str] = []
+
+    if _state.hands is None:
+        try:
+            _state.hands = HexStrikeHands.connect(hexstrike_url)
+            _state.hands.ping()
+            print(f"[jcyber] ok HexStrike @ {hexstrike_url}", file=sys.stderr)
+        except Exception as e:
+            _state.hands = None
+            errors.append(f"HexStrike @ {hexstrike_url}: {e}")
+
+    if _state.graph is None:
+        try:
+            _state.graph = MemgraphStore.connect(memgraph_uri)
+            _state.graph.ping()
+            print(f"[jcyber] ok Memgraph @ {memgraph_uri}", file=sys.stderr)
+        except Exception as e:
+            _state.graph = None
+            errors.append(f"Memgraph @ {memgraph_uri}: {e}")
+
+    if _state.caido is None:
+        try:
+            host, port = _parse_host_port(caido_proxy)
+            _tcp_probe(host, port)
+            print(f"[jcyber] ok Caido proxy @ {caido_proxy}", file=sys.stderr)
+        except Exception as e:
+            errors.append(f"Caido proxy @ {caido_proxy}: {e}")
+
+        try:
+            _state.caido = CaidoProxy.connect(caido_api_url, token=caido_token)
+            _state.caido.ping()
+            print(f"[jcyber] ok Caido API @ {caido_api_url}", file=sys.stderr)
+        except Exception as e:
+            _state.caido = None
+            errors.append(f"Caido API @ {caido_api_url}: {e}")
+
+    if _state.memory is None:
+        if memory_url:
+            try:
+                _state.memory = TencentMemory.connect(memory_url)
+                print(f"[jcyber] ok Memory @ {memory_url}", file=sys.stderr)
+            except Exception as e:
+                errors.append(f"Memory @ {memory_url}: {e}")
+        elif not _backends_initialized:
+            errors.append("JCYBER_MEMORY_URL not set")
+
+    if not _backends_initialized and not os.environ.get("TYPESAFE_API_KEY"):
+        errors.append("TYPESAFE_API_KEY not set")
+    elif os.environ.get("TYPESAFE_API_KEY") and not _backends_initialized:
+        print("[jcyber] ok TYPESAFE_API_KEY present", file=sys.stderr)
+
+    if errors:
+        _log_degraded(errors)
 
 
 def run_server() -> None:

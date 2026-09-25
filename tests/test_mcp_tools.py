@@ -46,7 +46,7 @@ def _reset_state():
     old_e = _state._ev_seq
     old_h = _state._h_seq
     old_f = _state._f_seq
-    old_bc = _mod._backends_connected
+    old_bc = _mod._backends_initialized
 
     yield
 
@@ -59,7 +59,7 @@ def _reset_state():
     _state._ev_seq = old_e
     _state._h_seq = old_h
     _state._f_seq = old_f
-    _mod._backends_connected = old_bc
+    _mod._backends_initialized = old_bc
 
 
 def _wire_fakes(
@@ -68,7 +68,7 @@ def _wire_fakes(
     memory: FakeMemory | None = None,
 ) -> None:
     # Prevent _ensure_backends from trying real connections
-    _mod._backends_connected = True
+    _mod._backends_initialized = True
     _state.graph = graph or FakeGraph()  # type: ignore[assignment]
     _state.hands = hands or FakeHands()  # type: ignore[assignment]
     _state.memory = memory or FakeMemory()  # type: ignore[assignment]
