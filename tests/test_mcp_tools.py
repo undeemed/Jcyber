@@ -15,7 +15,9 @@ from jcyber.mcp_server import (
     _state,
     check_duplicate,
     commit_learnings,
+    create_attack_chain,
     create_hypothesis,
+    get_attack_chains,
     get_decision_trace,
     get_state,
     intake_target,
@@ -76,6 +78,7 @@ def _wire_fakes(
     _state._ev_seq = 0
     _state._h_seq = 0
     _state._f_seq = 0
+    _state._ac_seq = 0
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +187,46 @@ def test_retire_hypothesis():
     result = json.loads(retire_hypothesis("H-001", "not exploitable"))
     assert result["status"] == "retired"
     assert result["reason"] == "not exploitable"
+
+
+def test_create_attack_chain_demonstrated():
+    _wire_fakes()
+    result = json.loads(
+        create_attack_chain("Debug param to DB dump", "Full database access", ["F-001", "F-002"])
+    )
+    assert result["chain_id"] == "AC-001"
+    assert result["status"] == "demonstrated"
+    assert result["steps"] == ["F-001", "F-002"]
+
+
+def test_create_attack_chain_theoretical():
+    _wire_fakes()
+    result = json.loads(
+        create_attack_chain("Possible chain", "Needs validation", ["F-001", "H-002"])
+    )
+    assert result["status"] == "theoretical"
+
+
+def test_create_attack_chain_empty_steps():
+    _wire_fakes()
+    with pytest.raises(ValueError, match="at least one step"):
+        create_attack_chain("empty", "none", [])
+
+
+def test_get_attack_chains_empty():
+    _wire_fakes()
+    result = json.loads(get_attack_chains())
+    assert result == {"chains": []}
+
+
+def test_get_attack_chains_with_data():
+    graph = FakeGraph()
+    _wire_fakes(graph=graph)
+    create_attack_chain("Chain A", "Impact A", ["F-001"])
+    result = json.loads(get_attack_chains())
+    assert len(result) == 1
+    assert result[0]["title"] == "Chain A"
+    assert result[0]["status"] == "demonstrated"
 
 
 def test_recall_lessons_no_memory():

@@ -19,6 +19,7 @@ class FakeGraph:
                 "recent_evidence": [],
                 "tools_run": [],
                 "unscored_findings": [],
+                "attack_chains": [],
             }
         )
         self.decisions: list[JSON] = []
@@ -26,6 +27,7 @@ class FakeGraph:
         self.verdicts: list[tuple[str, str, float]] = []
         self._seen: set[str] = set()
         self.report: JSON = report if report is not None else {"engagement": "", "findings": []}
+        self.chains: list[dict[str, JSON]] = []
 
     def project_state(self, engagement_id: str) -> JSON:
         return self.projection
@@ -59,6 +61,22 @@ class FakeGraph:
 
     def score_finding(self, engagement_id: str, fid: str, severity: int) -> None:
         pass
+
+    def create_attack_chain(
+        self, engagement_id: str, ac_id: str, title: str, impact: str, step_ids: list[str]
+    ) -> str:
+        status = "demonstrated" if all(s.startswith("F-") for s in step_ids) else "theoretical"
+        steps: list[JSON] = list(step_ids)
+        self.chains.append(
+            {"id": ac_id, "title": title, "impact": impact, "status": status, "steps": steps}
+        )
+        return status
+
+    def get_attack_chains(self, engagement_id: str) -> list[JSON]:
+        return list(self.chains)
+
+    def attack_chain_count(self, engagement_id: str) -> int:
+        return len(self.chains)
 
 
 class FakeHands:
