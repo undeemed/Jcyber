@@ -130,6 +130,7 @@ class ServerState:
         self._ev_seq: int = 0
         self._h_seq: int = 0
         self._f_seq: int = 0
+        self._ac_seq: int = 0
 
     def next_evidence_id(self) -> str:
         self._ev_seq += 1
@@ -142,6 +143,10 @@ class ServerState:
     def next_finding_id(self) -> str:
         self._f_seq += 1
         return f"F-{self._f_seq:03d}"
+
+    def next_chain_id(self) -> str:
+        self._ac_seq += 1
+        return f"AC-{self._ac_seq:03d}"
 
 
 _state = ServerState()
@@ -584,6 +589,59 @@ def retire_hypothesis(hypothesis_id: str, reason: str = "") -> str:
     graph = _require_graph()
     graph.apply_verdict(_state.engagement_id, hypothesis_id, "retire", 0.0)
     return json.dumps({"hypothesis_id": hypothesis_id, "status": "retired", "reason": reason})
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+        open_world_hint=False,
+    )
+)
+def create_attack_chain(
+    title: str,
+    impact: str,
+    step_ids: list[str],
+) -> str:
+    """Create an attack chain (AC-###) linking findings and hypotheses into
+    an ordered exploitation path. Each step is a finding (F-###) or
+    hypothesis (H-###) that the attacker moves through sequentially.
+
+    title: descriptive name (e.g. "Debug param to DB dump via credential leak")
+    impact: what the full chain achieves (e.g. "Full database access from unauthenticated position")
+    step_ids: ordered list of F-### and/or H-### ids forming the chain
+    """
+    if not step_ids:
+        raise ValueError("Attack chain requires at least one step id")
+    graph = _require_graph()
+    ac_id = _state.next_chain_id()
+    status = graph.create_attack_chain(_state.engagement_id, ac_id, title, impact, step_ids)
+    return json.dumps(
+        {
+            "chain_id": ac_id,
+            "title": title,
+            "impact": impact,
+            "status": status,
+            "steps": step_ids,
+        }
+    )
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(
+        read_only_hint=True,
+        destructive_hint=False,
+        idempotent_hint=True,
+        open_world_hint=False,
+    )
+)
+def get_attack_chains() -> str:
+    """List all attack chains for the current engagement with their ordered
+    steps. Use to review exploitation paths and identify gaps."""
+    graph = _require_graph()
+    chains = graph.get_attack_chains(_state.engagement_id)
+    return json.dumps(chains, indent=2) if chains else '{"chains": []}'
 
 
 # ---------------------------------------------------------------------------

@@ -1,43 +1,104 @@
 # Jcyber Pentesting Skill
 
-You are driving a pentesting engagement through Jcyber's MCP tools. You are the reasoning loop. Jcyber gives you scope-gated scanning tools, an evidence graph, and a finding lifecycle. Your job: find real vulnerabilities, build evidence chains, and produce a structured report.
+You are driving a pentesting engagement through Jcyber's MCP tools. You are
+the reasoning loop. Your job: find exploitable vulnerabilities, build attack
+chains, hunt for zero-days, and prove real impact. Data leaks matter when
+they chain into something worse. The goal is not a list of exposures — it is
+proof of what an attacker can do.
 
 ## The Ladder: How to Find Vulnerabilities
 
-Work through these phases in order. Each phase builds on the last.
+Work through these phases in order. Each phase builds on the last. The early
+phases exist to feed the later ones — do not stop at recon.
 
-### 1. Reach (What's there?)
+### 1. Map (What's there?)
 - `intake_target` to start the engagement
 - `subfinder_scan` + `httpx_probe` to map live subdomains
 - `nmap_scan` to find open ports and services
 - `katana_crawl` or `hakrawler_crawl` to discover endpoints
+- `gau_discovery` / `waybackurls_discovery` for historical endpoints
 - `get_state` to review what you've found
 
-### 2. Understand (What's it running?)
+### 2. Fingerprint (What's it running?)
+- `httpx_probe` tech detection — note exact version strings
 - `nikto_scan` for server misconfigs
 - `wpscan_analyze` if WordPress detected
-- `wafw00f_scan` to detect WAFs
+- `wafw00f_scan` to detect WAFs (plan bypass before scanning further)
 - `http_framework_test` for framework fingerprinting
-- Look at tech stack from httpx results. Note versions.
+- `browser_agent_inspect` to extract JS bundles, API routes, hardcoded
+  secrets, internal endpoints from client-side code
+- Look up CVEs for every version you fingerprint. Known CVEs are a map to
+  the bug classes developers get wrong — use them to hunt variants.
 
-### 3. Primitive (What breaks?)
-- `nuclei_scan` for known CVE templates — run this early, it covers thousands of checks
-- `sqlmap_scan` on parameters you found
-- `dalfox_xss_scan` for XSS on injectable params
-- `ffuf_scan` to fuzz directories and parameters
-- `jwt_analyzer` if JWT tokens in use
-- `graphql_scanner` if GraphQL endpoint found
+### 3. Reverse Engineer (What's hidden in the code?)
+- `browser_agent_inspect` on JS-heavy apps: extract webpack bundles,
+  source maps, API schemas, hardcoded keys, internal URLs
+- Trace API call patterns — find undocumented endpoints, admin routes,
+  debug interfaces
+- Extract JWT tokens and analyze with `jwt_analyzer` — weak signing,
+  algorithm confusion, claim tampering
+- Look for GraphQL introspection with `graphql_scanner` — full schema
+  exposure enables targeted attacks
+- Every internal URL, API key, or endpoint you find is a new attack surface.
+  Feed them back into scanning tools.
 
-### 4. Escalate (How bad is it?)
-- Confirm findings with `http_repeater` (replay the attack)
-- `browser_agent_inspect` for JS-rendered content
-- Chain findings: SQLi + file read = RCE chain
-- Test privilege escalation paths
+### 4. Break (What's exploitable?)
+This is where you spend most of your time.
 
-### 5. Chain (What's the impact?)
-- Link findings into attack chains
-- Document the full exploitation path
-- Assess real-world impact (data exposure, account takeover, RCE)
+**Injection and code execution:**
+- `sqlmap_scan` on every parameter you found — not just obvious ones.
+  Test headers, cookies, JSON bodies, not just query strings.
+- `dalfox_xss_scan` for reflected and stored XSS
+- `nuclei_scan` with targeted templates for the tech stack you identified
+- `api_fuzzer` and `comprehensive_api_audit` on API endpoints
+- `arjun_scan` to discover hidden parameters, then test each one
+- `ffuf_scan` / `feroxbuster_scan` for hidden paths — admin panels, debug
+  endpoints, backup files, config dumps
+
+**Authentication and authorization:**
+- Test IDOR on every resource endpoint — change IDs, UUIDs, sequential
+  numbers. Use `http_repeater` to modify and replay requests.
+- Test privilege escalation: can a low-priv user hit admin endpoints?
+- Test JWT manipulation: algorithm none, key confusion, claim tampering
+- Test session management: fixation, insufficient expiry, concurrent sessions
+- Test OAuth flows: redirect manipulation, state parameter abuse
+
+**Server-side attacks:**
+- SSRF: any parameter that takes a URL — test with internal addresses
+  (169.254.169.254, localhost, internal hostnames from recon)
+- Path traversal: file upload/download, include parameters, template params
+- Deserialization: look for serialized objects in cookies, parameters, APIs
+- Command injection: any parameter that might reach a shell
+
+### 5. Chain (What's the real impact?)
+Single vulnerabilities are starting points. Chain them:
+
+- Info disclosure + SSRF = internal network access
+- IDOR + stored XSS = account takeover at scale
+- SQLi (limited) + file read = config extraction = RCE
+- Directory traversal + source code read = hardcoded credentials = admin
+- JWT weak signing + privilege escalation = full admin takeover
+- Open redirect + OAuth = token theft
+
+Every confirmed primitive: ask "what can I reach from here?" Test the next
+link in the chain. A medium-severity SSRF that reads AWS metadata becomes
+critical when it leaks IAM credentials.
+
+### 6. Hunt Zero-Days (What has nobody found yet?)
+After exhausting known templates:
+
+- Look up published CVEs for every version you fingerprinted. Read the root
+  cause — not just the advisory, the actual bug class.
+- Search for the same bug class in other code paths. If they got path
+  traversal wrong in the file upload handler, check the template loader,
+  the export function, the import function.
+- Combine findings: a low-severity info disclosure that leaks an internal
+  path + a path traversal = file read. No single scanner catches that chain.
+- Test edge cases in custom code: Unicode normalization, integer overflow in
+  pagination, race conditions in state-changing operations, double-encoding
+  bypass of WAF rules.
+- Use `http_repeater` to craft manual payloads — scanners test common
+  patterns, you test target-specific ones.
 
 ## Finding Lifecycle
 
@@ -53,7 +114,7 @@ Evidence (E-###) -> Hypothesis (H-###) -> Finding (F-###) -> Validated Finding
 1. **Evidence**: automatically created when you run a scanning tool. Each gets an `E-###` id.
 2. **Hypothesis**: call `create_hypothesis` when evidence suggests a vulnerability. Reference the evidence id. Text should be a testable claim.
 3. **Finding**: call `promote_finding` when you've confirmed the hypothesis with additional evidence (reproduction, second tool confirming).
-4. **Scoring**: call `score_finding` with severity (none/low/medium/high/critical) and justification.
+4. **Scoring**: call `score_finding` with severity and justification. Score by exploitable impact, not mechanism.
 5. **Retirement**: call `retire_hypothesis` when testing disproves it.
 
 ## Scope Rules
@@ -91,11 +152,16 @@ All IDs are sequential per engagement, never reused:
 | API endpoint | `api_fuzzer`, `comprehensive_api_audit` |
 | GraphQL | `graphql_scanner` |
 | JWT in use | `jwt_analyzer` |
+| Hidden parameters suspected | `arjun_scan`, `paramspider_discovery` |
+| JS-heavy app, need client-side intel | `browser_agent_inspect` |
+| Need to fuzz deeper (vhosts, params) | `ffuf_scan`, `wfuzz_scan` |
+| Manual exploit verification | `http_repeater` (craft custom payloads) |
 
 ## When to Stop
 
 - All reachable hypotheses are resolved (confirmed or retired)
 - No more unexplored attack surface
+- Attack chains have been tested to their full depth
 - Budget exhausted (check `get_state` for tool run count)
 - Call `render_findings_report` to produce the final report
 - Call `commit_learnings` to save lessons for future engagements
@@ -138,39 +204,49 @@ from real false-positives in prior engagements.
   may fix CVEs without bumping the version string.
 
 ### PII and data leaks
-- Directory listing with real names, emails, payment details, and addresses
-  is HIGH severity, not LOW. Cross-reference data to confirm it belongs to
-  real people before reporting.
+- Data exposure is a finding only when it chains into further attack surface
+  or exposes credentials/tokens. Directory listings of static marketing
+  assets are not findings.
+- Real PII (names, emails, payment details, addresses) in public directories
+  is HIGH severity. Cross-reference data to confirm it belongs to real people.
 - Receipt PDFs, invoices, and payment confirmations in public upload
   directories are PII leaks regardless of whether they contain passwords.
+- A data leak that gives you credentials, API keys, or internal URLs is
+  primarily an access vector — follow the chain before scoring the leak alone.
 
 ## Severity Guide
 
 | Level | Criteria |
 |-------|----------|
-| critical | RCE, auth bypass, full DB dump, admin takeover |
-| high | SQLi (limited), stored XSS, IDOR with sensitive data, SSRF to internal |
-| medium | Reflected XSS, CSRF on state-changing actions, info disclosure (versions, paths) |
+| critical | RCE, auth bypass, full DB dump, admin takeover, exploit chain to internal network |
+| high | SQLi (limited), stored XSS, IDOR with sensitive data, SSRF to internal, credential exposure |
+| medium | Reflected XSS, CSRF on state-changing actions, info disclosure enabling further attack |
 | low | Missing headers, verbose errors, directory listing (non-sensitive files only) |
 | none | Informational only, no security impact |
 
-**Rate by what's exposed, not the mechanism.** A directory listing that
-reveals PII, payment receipts, credentials, or internal documents is HIGH
-or CRITICAL -- not LOW. The same mechanism at different exposure levels
-gets different severity.
+**Score by exploitable impact, not mechanism.** A directory listing is LOW.
+A directory listing that leaks credentials enabling admin access is CRITICAL
+— scored for the chain, not the directory listing.
+
+**Prefer exploit chains over standalone findings.** Two mediums that chain
+into a critical should be reported as one critical finding with the chain
+documented, plus individual findings at their standalone severity.
 
 ## Workflow Example
 
 ```
 1. intake_target("https://example.com")
-2. subfinder_scan(target="example.com")
-3. httpx_probe(target="example.com")        -> see live subdomains
-4. nmap_scan(target="example.com")           -> ports 80, 443, 3306
-5. nuclei_scan(target="example.com")         -> CVE-2024-XXXX found
-6. get_state()                               -> review evidence
-7. create_hypothesis(text="CVE-2024-XXXX in nginx", evidence_id="E-003")
-8. http_repeater(target="example.com/vuln")  -> confirm exploitation
-9. promote_finding(hypothesis_id="H-001", title="CVE-2024-XXXX RCE via nginx misconfiguration")
-10. score_finding(finding_id="F-001", severity="critical", justification="Unauthenticated RCE")
-11. render_findings_report()
+2. subfinder_scan(target="example.com")     -> 3 subdomains
+3. httpx_probe(target="example.com")        -> api.example.com alive, nginx 1.21
+4. nmap_scan(target="api.example.com")      -> ports 80, 443, 6379(!)
+5. browser_agent_inspect(url="https://example.com")  -> find API schema in webpack bundle
+6. nuclei_scan(target="api.example.com")    -> CVE-2021-XXXX in nginx
+7. arjun_scan(url="https://api.example.com/v1/users") -> hidden `debug` param
+8. http_repeater: test debug=true           -> leaks stack traces with DB creds
+9. create_hypothesis("DB creds from debug param enable direct DB access", evidence="E-005,E-008")
+10. sqlmap_scan with extracted creds         -> full DB dump confirmed
+11. promote_finding(hypothesis_id="H-001", title="Debug parameter leaks DB credentials enabling full dump")
+12. score_finding(finding_id="F-001", severity="critical", justification="Unauthenticated debug param -> DB creds -> full data access")
+13. Check: exposed Redis on 6379 — test unauthenticated access, SSRF chain
+14. render_findings_report()
 ```

@@ -92,6 +92,7 @@ class MemgraphStore:
                 "recent_evidence": [],
                 "tools_run": [],
                 "unscored_findings": [],
+                "attack_chains": [],
             }
         evidence: list[JSON] = [
             {"id": r["id"], "tool": r["tool"], "target": r["target"], "summary": r["summary"]}
@@ -99,6 +100,7 @@ class MemgraphStore:
         ]
         tools_run: list[JSON] = list(tools_rec["tools_run"]) if tools_rec else []
         unscored: list[JSON] = list(unscored_rec["unscored_findings"]) if unscored_rec else []
+        chains = self.get_attack_chains(engagement_id)
         result: dict[str, JSON] = {
             "phase": rec["phase"],
             "open_hypotheses": list(rec["open_hypotheses"]),
@@ -106,6 +108,7 @@ class MemgraphStore:
             "recent_evidence": evidence,
             "tools_run": tools_run,
             "unscored_findings": unscored,
+            "attack_chains": chains,
         }
         return result
 
@@ -131,7 +134,8 @@ class MemgraphStore:
             }
             for r in rows
         ]
-        return {"engagement": engagement_id, "findings": findings}
+        chains = self.get_attack_chains(engagement_id)
+        return {"engagement": engagement_id, "findings": findings, "attack_chains": chains}
 
     def write_decision(self, engagement_id: str, record: JSON) -> None:
         ts = record.get("ts", "") if isinstance(record, dict) else ""
@@ -264,6 +268,77 @@ class MemgraphStore:
         with self._driver.session() as s:
             rec = s.run(
                 "MATCH (f:Finding {engagement_id: $eid}) RETURN count(f) AS n",
+                eid=engagement_id,
+            ).single()
+        return int(rec["n"]) if rec else 0
+
+    def create_attack_chain(
+        self,
+        engagement_id: str,
+        ac_id: str,
+        title: str,
+        impact: str,
+        step_ids: list[str],
+    ) -> str:
+        """Create an AttackChain node and ordered STEP edges to findings/hypotheses.
+        Returns inferred status: 'demonstrated' if all steps are Findings,
+        'theoretical' if any step is a Hypothesis."""
+        status = "demonstrated" if all(s.startswith("F-") for s in step_ids) else "theoretical"
+        with self._driver.session() as s:
+            s.run(
+                "MERGE (ac:AttackChain {engagement_id: $eid, id: $acid}) "
+                "SET ac.title=$title, ac.impact=$impact, ac.status=$status, "
+                "ac.evidence_ids=$step_ids",
+                eid=engagement_id,
+                acid=ac_id,
+                title=title,
+                impact=impact,
+                status=status,
+                step_ids=step_ids,
+            )
+            for i, sid in enumerate(step_ids, 1):
+                s.run(
+                    "MATCH (ac:AttackChain {engagement_id: $eid, id: $acid}) "
+                    "OPTIONAL MATCH (f:Finding {engagement_id: $eid, id: $sid}) "
+                    "OPTIONAL MATCH (h:Hypothesis {engagement_id: $eid, id: $sid}) "
+                    "WITH ac, coalesce(f, h) AS step WHERE step IS NOT NULL "
+                    "MERGE (ac)-[:STEP {n: $n}]->(step)",
+                    eid=engagement_id,
+                    acid=ac_id,
+                    sid=sid,
+                    n=i,
+                )
+        return status
+
+    def get_attack_chains(self, engagement_id: str) -> list[JSON]:
+        """Return all attack chains with their ordered steps. Single query."""
+        cypher = (
+            "MATCH (ac:AttackChain {engagement_id: $eid}) "
+            "OPTIONAL MATCH (ac)-[r:STEP]->(step) "
+            "WITH ac, r, step ORDER BY r.n "
+            "RETURN ac.id AS id, ac.title AS title, ac.impact AS impact, "
+            "ac.status AS status, "
+            "collect({n: r.n, id: step.id, label: labels(step)[0], "
+            "title: coalesce(step.title, step.text)}) AS steps "
+            "ORDER BY id"
+        )
+        with self._driver.session() as s:
+            rows = list(s.run(cypher, eid=engagement_id))
+        return [
+            {
+                "id": r["id"],
+                "title": r["title"],
+                "impact": r["impact"],
+                "status": r["status"],
+                "steps": [st for st in r["steps"] if st.get("id") is not None],
+            }
+            for r in rows
+        ]
+
+    def attack_chain_count(self, engagement_id: str) -> int:
+        with self._driver.session() as s:
+            rec = s.run(
+                "MATCH (ac:AttackChain {engagement_id: $eid}) RETURN count(ac) AS n",
                 eid=engagement_id,
             ).single()
         return int(rec["n"]) if rec else 0
